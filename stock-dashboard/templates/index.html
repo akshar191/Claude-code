@@ -1,0 +1,1221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stock Market Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.1.1/dist/chartjs-chart-financial.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+  <style>
+    /* ── Reset & Base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0f14;
+      --bg2:       #13161e;
+      --bg3:       #1a1e2a;
+      --border:    #252936;
+      --accent:    #4f8ef7;
+      --accent2:   #7b5cf0;
+      --green:     #22c55e;
+      --red:       #ef4444;
+      --text:      #e2e8f0;
+      --muted:     #64748b;
+      --card-shadow: 0 4px 24px rgba(0,0,0,0.4);
+      --radius:    12px;
+    }
+
+    html { font-size: 15px; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(8px);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .logo-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+    }
+
+    .logo span { color: var(--accent); }
+
+    /* ── Search ── */
+    .search-wrap {
+      position: relative;
+      width: 320px;
+    }
+
+    .search-wrap input {
+      width: 100%;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.55rem 1rem 0.55rem 2.6rem;
+      color: var(--text);
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .search-wrap input:focus { border-color: var(--accent); }
+
+    .search-wrap input::placeholder { color: var(--muted); }
+
+    .search-icon {
+      position: absolute;
+      left: 0.8rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      pointer-events: none;
+      font-size: 0.95rem;
+    }
+
+    #search-btn {
+      margin-left: 0.5rem;
+      padding: 0.55rem 1.1rem;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+      white-space: nowrap;
+    }
+
+    #search-btn:hover { opacity: 0.85; }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    /* ── Layout ── */
+    .container {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 1.75rem 2rem;
+    }
+
+    .grid-main {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 1.5rem;
+    }
+
+    .col-left { display: flex; flex-direction: column; gap: 1.5rem; }
+    .col-right { display: flex; flex-direction: column; gap: 1.5rem; }
+
+    /* ── Cards / Sections ── */
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--card-shadow);
+      overflow: hidden;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 1.25rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .card-title {
+      font-size: 0.875rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+
+    .card-body { padding: 1.25rem; }
+
+    /* ── Watchlist Add Form ── */
+    .add-form {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .add-form input {
+      flex: 1;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.55rem 0.9rem;
+      color: var(--text);
+      font-size: 0.875rem;
+      outline: none;
+      text-transform: uppercase;
+      transition: border-color 0.2s;
+    }
+
+    .add-form input:focus { border-color: var(--accent); }
+
+    .btn-add {
+      padding: 0.55rem 1rem;
+      background: var(--accent);
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      white-space: nowrap;
+    }
+
+    .btn-add:hover { background: #3b7de8; }
+
+    /* ── Quote Cards Grid ── */
+    #quotes-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 1rem;
+    }
+
+    .quote-card {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem;
+      cursor: pointer;
+      position: relative;
+      transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s;
+      overflow: hidden;
+    }
+
+    .quote-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--accent);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .quote-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+    .quote-card:hover::before { opacity: 1; }
+    .quote-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    .quote-card.selected::before { opacity: 1; }
+
+    .qc-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 0.75rem;
+    }
+
+    .qc-ticker {
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+
+    .qc-remove {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 1rem;
+      line-height: 1;
+      padding: 0 2px;
+      transition: color 0.15s;
+    }
+
+    .qc-remove:hover { color: var(--red); }
+
+    .qc-price {
+      font-size: 1.45rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 0.3rem;
+    }
+
+    .qc-change {
+      font-size: 0.875rem;
+      font-weight: 600;
+    }
+
+    .qc-mcap {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-top: 0.5rem;
+    }
+
+    .positive { color: var(--green); }
+    .negative { color: var(--red); }
+
+    /* ── Skeleton loader ── */
+    .skeleton {
+      background: linear-gradient(90deg, var(--bg3) 25%, #222536 50%, var(--bg3) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.4s infinite;
+      border-radius: 6px;
+    }
+
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    .sk-block { height: 1rem; margin-bottom: 0.5rem; }
+    .sk-sm { width: 40%; }
+    .sk-md { width: 65%; }
+    .sk-lg { width: 90%; }
+
+    /* ── Chart Section ── */
+    #chart-section { display: none; }
+
+    #chart-title {
+      font-size: 1rem;
+      font-weight: 700;
+    }
+
+    #chart-subtitle {
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    .chart-controls {
+      display: flex;
+      gap: 0.4rem;
+    }
+
+    .period-btn {
+      padding: 0.3rem 0.7rem;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .period-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .period-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    .chart-type-toggle {
+      display: flex;
+      gap: 0.4rem;
+    }
+
+    .toggle-btn {
+      padding: 0.3rem 0.7rem;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .toggle-btn.active { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+
+    #chart-container {
+      position: relative;
+      height: 340px;
+      margin-top: 1rem;
+    }
+
+    #volume-container {
+      position: relative;
+      height: 80px;
+      margin-top: 0.5rem;
+    }
+
+    /* ── Movers ── */
+    .movers-tabs {
+      display: flex;
+      gap: 0;
+    }
+
+    .mover-tab {
+      flex: 1;
+      padding: 0.4rem 0;
+      background: none;
+      border: none;
+      border-bottom: 2px solid var(--border);
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .mover-tab.active.gain { border-color: var(--green); color: var(--green); }
+    .mover-tab.active.loss { border-color: var(--red); color: var(--red); }
+
+    .mover-list { padding: 0.5rem 0; }
+
+    .mover-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.65rem 1.25rem;
+      cursor: pointer;
+      transition: background 0.15s;
+      border-radius: 6px;
+      margin: 0 0.25rem;
+    }
+
+    .mover-item:hover { background: var(--bg3); }
+
+    .mover-rank {
+      width: 20px;
+      color: var(--muted);
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+
+    .mover-ticker {
+      flex: 1;
+      font-weight: 700;
+      font-size: 0.9rem;
+      margin-left: 0.5rem;
+    }
+
+    .mover-price {
+      font-size: 0.875rem;
+      color: var(--text);
+      margin-right: 0.75rem;
+    }
+
+    .mover-pct {
+      font-size: 0.875rem;
+      font-weight: 700;
+      min-width: 60px;
+      text-align: right;
+    }
+
+    /* ── Search Result Banner ── */
+    #search-result {
+      display: none;
+      background: var(--bg2);
+      border: 1px solid var(--accent);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      margin-bottom: 1.5rem;
+      box-shadow: var(--card-shadow);
+    }
+
+    #search-result h3 { font-size: 1rem; margin-bottom: 0.25rem; }
+    #search-result p { color: var(--muted); font-size: 0.85rem; }
+
+    .search-result-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .search-result-stats {
+      display: flex;
+      gap: 2rem;
+    }
+
+    .stat-item label {
+      display: block;
+      color: var(--muted);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 2px;
+    }
+
+    .stat-item .val {
+      font-size: 1.1rem;
+      font-weight: 700;
+    }
+
+    .btn-add-watchlist {
+      padding: 0.55rem 1.1rem;
+      background: none;
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      color: var(--accent);
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-add-watchlist:hover { background: var(--accent); color: #fff; }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.9rem 1.4rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      z-index: 9999;
+      transform: translateY(120%);
+      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      max-width: 320px;
+    }
+
+    #toast.show { transform: translateY(0); }
+    #toast.success { border-left: 4px solid var(--green); }
+    #toast.error { border-left: 4px solid var(--red); }
+    #toast.info { border-left: 4px solid var(--accent); }
+
+    /* ── Loading overlay ── */
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 0.4rem;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Refresh button ── */
+    #refresh-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--muted);
+      padding: 0.4rem 0.8rem;
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+
+    #refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    .last-updated {
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 1024px) {
+      .grid-main { grid-template-columns: 1fr; }
+      .col-right { flex-direction: row; flex-wrap: wrap; }
+      .col-right .card { flex: 1; min-width: 280px; }
+    }
+
+    @media (max-width: 640px) {
+      header { padding: 0 1rem; gap: 0.5rem; }
+      .search-wrap { width: 180px; }
+      .container { padding: 1rem; }
+      .logo-text { display: none; }
+    }
+
+    /* ── Candlestick colors (financial plugin) ── */
+    canvas { display: block; }
+
+    /* ── Empty state ── */
+    .empty-state {
+      text-align: center;
+      padding: 2.5rem 1rem;
+      color: var(--muted);
+    }
+
+    .empty-state .icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
+    .empty-state p { font-size: 0.875rem; }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ── -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">📈</div>
+    <span class="logo-text">Stock<span>Club</span> Dashboard</span>
+  </div>
+
+  <div class="header-right">
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="search-input" placeholder="Search ticker… e.g. AAPL" autocomplete="off" />
+    </div>
+    <button id="search-btn">Look Up</button>
+  </div>
+</header>
+
+<!-- ── Toast ── -->
+<div id="toast"></div>
+
+<!-- ── Main ── -->
+<div class="container">
+
+  <!-- Search Result -->
+  <div id="search-result">
+    <div class="search-result-inner">
+      <div>
+        <h3 id="sr-ticker">—</h3>
+        <p id="sr-name"></p>
+      </div>
+      <div class="search-result-stats">
+        <div class="stat-item">
+          <label>Price</label>
+          <div class="val" id="sr-price">—</div>
+        </div>
+        <div class="stat-item">
+          <label>Change</label>
+          <div class="val" id="sr-change">—</div>
+        </div>
+        <div class="stat-item">
+          <label>Market Cap</label>
+          <div class="val" id="sr-mcap">—</div>
+        </div>
+      </div>
+      <button class="btn-add-watchlist" id="sr-add-btn">+ Add to Watchlist</button>
+    </div>
+  </div>
+
+  <div class="grid-main">
+
+    <!-- ── LEFT COLUMN ── -->
+    <div class="col-left">
+
+      <!-- Watchlist -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">📋 Watchlist</span>
+          <div style="display:flex;align-items:center;gap:0.75rem;">
+            <span class="last-updated" id="last-updated"></span>
+            <button id="refresh-btn">🔄 Refresh</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="add-form">
+            <input type="text" id="add-ticker-input" placeholder="Add ticker… e.g. AMZN" maxlength="10" autocomplete="off" />
+            <button class="btn-add" id="add-ticker-btn">+ Add</button>
+          </div>
+          <div id="quotes-grid">
+            <!-- Quote cards injected here -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Chart -->
+      <div class="card" id="chart-section">
+        <div class="card-header">
+          <div>
+            <div id="chart-title">—</div>
+            <div id="chart-subtitle"></div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:0.4rem;">
+            <div class="chart-type-toggle">
+              <button class="toggle-btn active" id="btn-line">Line</button>
+              <button class="toggle-btn" id="btn-candle">Candlestick</button>
+            </div>
+            <div class="chart-controls">
+              <button class="period-btn active" data-period="1mo">1M</button>
+              <button class="period-btn" data-period="3mo">3M</button>
+              <button class="period-btn" data-period="6mo">6M</button>
+              <button class="period-btn" data-period="1y">1Y</button>
+            </div>
+          </div>
+        </div>
+        <div class="card-body" style="padding-bottom:1rem;">
+          <div id="chart-container">
+            <canvas id="price-chart"></canvas>
+          </div>
+          <div id="volume-container">
+            <canvas id="volume-chart"></canvas>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── RIGHT COLUMN ── -->
+    <div class="col-right">
+
+      <!-- Top Movers -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">🚀 Top Movers</span>
+          <button id="movers-refresh" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1rem;" title="Refresh movers">🔄</button>
+        </div>
+        <div class="movers-tabs" style="padding:0 1.25rem;">
+          <button class="mover-tab active gain" data-tab="gainers">▲ Gainers</button>
+          <button class="mover-tab loss" data-tab="losers">▼ Losers</button>
+        </div>
+        <div class="mover-list" id="movers-list">
+          <div class="empty-state"><div class="spinner"></div> Loading…</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════
+   Stock Club Dashboard — Frontend Logic
+   ═══════════════════════════════════════ */
+
+const API = {
+  watchlist:       () => fetch('/api/watchlist'),
+  addTicker:   (t) => fetch('/api/watchlist/add',    { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ticker:t}) }),
+  removeTicker:(t) => fetch('/api/watchlist/remove', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ticker:t}) }),
+  quotes:     (ts) => fetch(`/api/quotes?tickers=${ts.join(',')}`),
+  chart:   (t, p)  => fetch(`/api/chart/${t}?period=${p}`),
+  movers:      () => fetch('/api/movers'),
+  search:      (t) => fetch(`/api/search/${t}`),
+};
+
+// ── State ──────────────────────────────
+let watchlist        = [];
+let moversData       = { gainers:[], losers:[] };
+let currentTab       = 'gainers';
+let selectedTicker   = null;
+let currentPeriod    = '1mo';
+let currentChartType = 'line';
+let chartData        = null;
+let priceChart       = null;
+let volumeChart      = null;
+let searchResult     = null;
+
+// ── Toast ──────────────────────────────
+const $toast = document.getElementById('toast');
+let toastTimer;
+function toast(msg, type = 'info') {
+  clearTimeout(toastTimer);
+  $toast.textContent = msg;
+  $toast.className = `show ${type}`;
+  toastTimer = setTimeout(() => { $toast.className = ''; }, 3200);
+}
+
+// ── Utilities ──────────────────────────
+function fmtPrice(n)  { return n != null ? `$${Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}` : '—'; }
+function fmtChg(n)    { return n != null ? `${n >= 0 ? '+' : ''}$${Number(n).toFixed(2)}` : '—'; }
+function fmtPct(n)    { return n != null ? `${n >= 0 ? '+' : ''}${Number(n).toFixed(2)}%` : '—'; }
+function cls(n)       { return n >= 0 ? 'positive' : 'negative'; }
+function now()        { return new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'}); }
+
+// ── Skeleton Cards ─────────────────────
+function renderSkeletons(count) {
+  const grid = document.getElementById('quotes-grid');
+  grid.innerHTML = Array.from({length: count}, () => `
+    <div class="quote-card">
+      <div class="skeleton sk-block sk-sm" style="height:1.1rem;"></div>
+      <div class="skeleton sk-block sk-lg" style="height:1.45rem;margin-top:0.5rem;"></div>
+      <div class="skeleton sk-block sk-md"></div>
+      <div class="skeleton sk-block sk-sm" style="margin-top:0.5rem;"></div>
+    </div>`).join('');
+}
+
+// ── Quote Cards ────────────────────────
+function renderQuoteCards(quotes) {
+  const grid = document.getElementById('quotes-grid');
+  if (!quotes.length) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">
+      <div class="icon">📭</div>
+      <p>Your watchlist is empty.<br>Add a ticker above to get started.</p>
+    </div>`;
+    return;
+  }
+  grid.innerHTML = quotes.map(q => `
+    <div class="quote-card ${selectedTicker===q.ticker?'selected':''}" data-ticker="${q.ticker}" onclick="selectStock('${q.ticker}')">
+      <div class="qc-top">
+        <div class="qc-ticker">${q.ticker}</div>
+        <button class="qc-remove" title="Remove from watchlist" onclick="removeStock(event,'${q.ticker}')">✕</button>
+      </div>
+      <div class="qc-price">${fmtPrice(q.price)}</div>
+      <div class="qc-change ${cls(q.change)}">
+        ${fmtChg(q.change)} &nbsp; <span>${fmtPct(q.change_pct)}</span>
+      </div>
+      <div class="qc-mcap">Mkt Cap: ${q.market_cap}</div>
+    </div>`).join('');
+}
+
+// ── Load Watchlist Quotes ──────────────
+async function loadWatchlist() {
+  try {
+    const wlRes  = await API.watchlist();
+    const wlData = await wlRes.json();
+    watchlist    = wlData.tickers || [];
+
+    if (!watchlist.length) { renderQuoteCards([]); return; }
+
+    renderSkeletons(watchlist.length);
+
+    const qRes  = await API.quotes(watchlist);
+    const qData = await qRes.json();
+    renderQuoteCards(qData.quotes || []);
+
+    document.getElementById('last-updated').textContent = `Updated ${now()}`;
+  } catch(e) {
+    toast('Failed to load watchlist data.', 'error');
+    console.error(e);
+  }
+}
+
+// ── Add Stock ──────────────────────────
+async function addStock() {
+  const input  = document.getElementById('add-ticker-input');
+  const ticker = input.value.trim().toUpperCase();
+  if (!ticker) return;
+
+  const btn    = document.getElementById('add-ticker-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+
+  try {
+    const res  = await API.addTicker(ticker);
+    const data = await res.json();
+    if (!res.ok) { toast(data.error || 'Ticker not found.', 'error'); return; }
+    watchlist  = data.tickers;
+    input.value = '';
+    toast(`${ticker} added to watchlist!`, 'success');
+    await loadWatchlist();
+  } catch(e) {
+    toast('Network error.', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '+ Add';
+  }
+}
+
+// ── Remove Stock ───────────────────────
+async function removeStock(e, ticker) {
+  e.stopPropagation();
+  const res   = await API.removeTicker(ticker);
+  const data  = await res.json();
+  watchlist   = data.tickers;
+  if (selectedTicker === ticker) {
+    selectedTicker = null;
+    document.getElementById('chart-section').style.display = 'none';
+  }
+  toast(`${ticker} removed.`, 'info');
+  await loadWatchlist();
+}
+
+// ── Select Stock → Chart ───────────────
+async function selectStock(ticker) {
+  selectedTicker = ticker;
+  // update selected state on cards
+  document.querySelectorAll('.quote-card').forEach(c => {
+    c.classList.toggle('selected', c.dataset.ticker === ticker);
+  });
+  await loadChart(ticker, currentPeriod);
+}
+
+// ── Load Chart ─────────────────────────
+async function loadChart(ticker, period) {
+  const section = document.getElementById('chart-section');
+  section.style.display = 'block';
+  document.getElementById('chart-title').textContent   = `${ticker} — Price Chart`;
+  document.getElementById('chart-subtitle').textContent = 'Loading…';
+
+  try {
+    const res  = await API.chart(ticker, period);
+    if (!res.ok) throw new Error('No data');
+    chartData  = await res.json();
+
+    document.getElementById('chart-title').textContent    = `${chartData.name || ticker}`;
+    document.getElementById('chart-subtitle').textContent = `${ticker} · ${period.toUpperCase()} · Last close $${chartData.closes.at(-1)?.toFixed(2)}`;
+
+    renderChart();
+    section.scrollIntoView({ behavior:'smooth', block:'nearest' });
+  } catch(e) {
+    document.getElementById('chart-subtitle').textContent = 'Failed to load chart data.';
+    toast('Chart data unavailable.', 'error');
+  }
+}
+
+// ── Render Chart ───────────────────────
+function renderChart() {
+  if (!chartData) return;
+
+  // Destroy old charts
+  if (priceChart)  { priceChart.destroy();  priceChart  = null; }
+  if (volumeChart) { volumeChart.destroy(); volumeChart = null; }
+
+  const labels  = chartData.labels;
+  const closes  = chartData.closes;
+  const opens   = chartData.opens;
+  const highs   = chartData.highs;
+  const lows    = chartData.lows;
+  const volumes = chartData.volumes;
+
+  const firstClose = closes[0];
+  const lastClose  = closes[closes.length - 1];
+  const trending   = lastClose >= firstClose;
+  const lineColor  = trending ? '#22c55e' : '#ef4444';
+
+  const ctx = document.getElementById('price-chart').getContext('2d');
+
+  if (currentChartType === 'line') {
+    // Gradient fill
+    const grad = ctx.createLinearGradient(0, 0, 0, 340);
+    grad.addColorStop(0,   trending ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)');
+    grad.addColorStop(1,   'rgba(0,0,0,0)');
+
+    priceChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          data: closes,
+          borderColor: lineColor,
+          backgroundColor: grad,
+          borderWidth: 2.5,
+          pointRadius: 0,
+          pointHoverRadius: 5,
+          pointHoverBackgroundColor: lineColor,
+          tension: 0.3,
+          fill: true,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode:'index', intersect:false },
+        plugins: {
+          legend: { display:false },
+          tooltip: {
+            backgroundColor: '#1a1e2a',
+            borderColor: '#252936',
+            borderWidth: 1,
+            titleColor: '#e2e8f0',
+            bodyColor: '#94a3b8',
+            callbacks: {
+              label: ctx => `Close: $${ctx.parsed.y.toFixed(2)}`
+            }
+          },
+        },
+        scales: {
+          x: {
+            ticks: { color:'#64748b', maxTicksLimit:8, maxRotation:0 },
+            grid:  { color:'#1a1e2a' },
+            border:{ color:'#252936' },
+          },
+          y: {
+            position: 'right',
+            ticks: { color:'#64748b', callback: v => `$${v.toFixed(0)}` },
+            grid:  { color:'rgba(37,41,54,0.6)' },
+            border:{ color:'#252936' },
+          }
+        }
+      }
+    });
+
+  } else {
+    // Candlestick chart using chartjs-chart-financial
+    const ohlcData = labels.map((label, i) => ({
+      x: label,
+      o: opens[i],
+      h: highs[i],
+      l: lows[i],
+      c: closes[i],
+    }));
+
+    priceChart = new Chart(ctx, {
+      type: 'candlestick',
+      data: {
+        datasets: [{
+          label: chartData.ticker,
+          data: ohlcData,
+          color: {
+            up:   '#22c55e',
+            down: '#ef4444',
+            unchanged: '#64748b',
+          }
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display:false },
+          tooltip: {
+            backgroundColor: '#1a1e2a',
+            borderColor: '#252936',
+            borderWidth: 1,
+            titleColor: '#e2e8f0',
+            bodyColor: '#94a3b8',
+          }
+        },
+        scales: {
+          x: {
+            type: 'category',
+            ticks: { color:'#64748b', maxTicksLimit:8, maxRotation:0 },
+            grid:  { color:'#1a1e2a' },
+            border:{ color:'#252936' },
+          },
+          y: {
+            position: 'right',
+            ticks: { color:'#64748b', callback: v => `$${v.toFixed(0)}` },
+            grid:  { color:'rgba(37,41,54,0.6)' },
+            border:{ color:'#252936' },
+          }
+        }
+      }
+    });
+  }
+
+  // Volume chart
+  const vCtx = document.getElementById('volume-chart').getContext('2d');
+  const volColors = closes.map((c, i) => i === 0 ? '#4f8ef7' : (c >= closes[i-1] ? 'rgba(34,197,94,0.6)' : 'rgba(239,68,68,0.6)'));
+
+  volumeChart = new Chart(vCtx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: volumes,
+        backgroundColor: volColors,
+        borderWidth: 0,
+        borderRadius: 2,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend:{ display:false }, tooltip:{
+        backgroundColor: '#1a1e2a',
+        borderColor: '#252936',
+        borderWidth: 1,
+        callbacks: { label: ctx => `Vol: ${(ctx.parsed.y/1e6).toFixed(2)}M` }
+      }},
+      scales: {
+        x: { display:false },
+        y: {
+          position:'right',
+          ticks: { color:'#64748b', callback: v => `${(v/1e6).toFixed(0)}M` },
+          grid:  { color:'rgba(37,41,54,0.4)' },
+          border:{ color:'#252936' },
+        }
+      }
+    }
+  });
+}
+
+// ── Movers ─────────────────────────────
+async function loadMovers() {
+  const list = document.getElementById('movers-list');
+  list.innerHTML = '<div class="empty-state"><div class="spinner"></div> Fetching movers…</div>';
+  try {
+    const res  = await API.movers();
+    moversData = await res.json();
+    renderMovers();
+  } catch(e) {
+    list.innerHTML = '<div class="empty-state"><p>Failed to load movers.</p></div>';
+  }
+}
+
+function renderMovers() {
+  const data = moversData[currentTab] || [];
+  const list = document.getElementById('movers-list');
+  if (!data.length) {
+    list.innerHTML = '<div class="empty-state"><p>No data available.</p></div>';
+    return;
+  }
+  list.innerHTML = data.map((q, i) => `
+    <div class="mover-item" onclick="selectAndAddMover('${q.ticker}')">
+      <span class="mover-rank">#${i+1}</span>
+      <span class="mover-ticker">${q.ticker}</span>
+      <span class="mover-price">${fmtPrice(q.price)}</span>
+      <span class="mover-pct ${cls(q.change_pct)}">${fmtPct(q.change_pct)}</span>
+    </div>`).join('');
+}
+
+async function selectAndAddMover(ticker) {
+  // Just load the chart for this ticker
+  selectedTicker = ticker;
+  document.querySelectorAll('.quote-card').forEach(c => c.classList.remove('selected'));
+  await loadChart(ticker, currentPeriod);
+}
+
+// ── Search ─────────────────────────────
+async function doSearch() {
+  const input  = document.getElementById('search-input');
+  const ticker = input.value.trim().toUpperCase();
+  if (!ticker) return;
+
+  const btn    = document.getElementById('search-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+
+  try {
+    const res  = await API.search(ticker);
+    const data = await res.json();
+    if (!res.ok) { toast(data.error || 'Ticker not found.', 'error'); hideSearchResult(); return; }
+
+    searchResult = data;
+    document.getElementById('sr-ticker').textContent  = data.ticker;
+    document.getElementById('sr-name').textContent    = '';
+    document.getElementById('sr-price').textContent   = fmtPrice(data.price);
+    document.getElementById('sr-price').className     = 'val';
+    document.getElementById('sr-change').textContent  = `${fmtChg(data.change)} (${fmtPct(data.change_pct)})`;
+    document.getElementById('sr-change').className    = `val ${cls(data.change)}`;
+    document.getElementById('sr-mcap').textContent    = data.market_cap;
+    document.getElementById('sr-mcap').className      = 'val';
+
+    const addBtn = document.getElementById('sr-add-btn');
+    const inWatchlist = watchlist.includes(data.ticker);
+    addBtn.textContent = inWatchlist ? '✓ In Watchlist' : '+ Add to Watchlist';
+    addBtn.disabled    = inWatchlist;
+
+    document.getElementById('search-result').style.display = 'block';
+
+    // Auto-load chart
+    selectedTicker = ticker;
+    await loadChart(ticker, currentPeriod);
+  } catch(e) {
+    toast('Search failed.', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Look Up';
+  }
+}
+
+function hideSearchResult() {
+  document.getElementById('search-result').style.display = 'none';
+  searchResult = null;
+}
+
+// ── Add from search result ─────────────
+document.getElementById('sr-add-btn').addEventListener('click', async () => {
+  if (!searchResult) return;
+  const ticker = searchResult.ticker;
+  const res    = await API.addTicker(ticker);
+  const data   = await res.json();
+  if (!res.ok) { toast(data.error || 'Failed to add.', 'error'); return; }
+  watchlist = data.tickers;
+  toast(`${ticker} added to watchlist!`, 'success');
+  document.getElementById('sr-add-btn').textContent = '✓ In Watchlist';
+  document.getElementById('sr-add-btn').disabled    = true;
+  await loadWatchlist();
+});
+
+// ── Event Listeners ────────────────────
+
+// Add ticker
+document.getElementById('add-ticker-btn').addEventListener('click', addStock);
+document.getElementById('add-ticker-input').addEventListener('keydown', e => { if (e.key==='Enter') addStock(); });
+
+// Search
+document.getElementById('search-btn').addEventListener('click', doSearch);
+document.getElementById('search-input').addEventListener('keydown', e => { if (e.key==='Enter') doSearch(); });
+
+// Refresh watchlist
+document.getElementById('refresh-btn').addEventListener('click', loadWatchlist);
+
+// Movers tabs
+document.querySelectorAll('.mover-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.mover-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    currentTab = tab.dataset.tab;
+    renderMovers();
+  });
+});
+
+// Movers refresh
+document.getElementById('movers-refresh').addEventListener('click', loadMovers);
+
+// Period buttons
+document.querySelectorAll('.period-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentPeriod = btn.dataset.period;
+    if (selectedTicker) loadChart(selectedTicker, currentPeriod);
+  });
+});
+
+// Chart type toggle
+document.getElementById('btn-line').addEventListener('click', () => {
+  currentChartType = 'line';
+  document.getElementById('btn-line').classList.add('active');
+  document.getElementById('btn-candle').classList.remove('active');
+  renderChart();
+});
+
+document.getElementById('btn-candle').addEventListener('click', () => {
+  currentChartType = 'candlestick';
+  document.getElementById('btn-candle').classList.add('active');
+  document.getElementById('btn-line').classList.remove('active');
+  renderChart();
+});
+
+// ── Init ───────────────────────────────
+(async function init() {
+  await loadWatchlist();
+  await loadMovers();
+
+  // Auto-select first ticker for chart
+  if (watchlist.length) {
+    await loadChart(watchlist[0], currentPeriod);
+    selectedTicker = watchlist[0];
+    document.querySelectorAll('.quote-card').forEach(c => {
+      c.classList.toggle('selected', c.dataset.ticker === selectedTicker);
+    });
+  }
+
+  // Auto-refresh quotes every 60s
+  setInterval(loadWatchlist, 60_000);
+})();
+</script>
+</body>
+</html>

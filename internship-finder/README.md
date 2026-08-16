@@ -75,6 +75,31 @@ cp .env.example .env     # optional — every key in it is optional
 python app.py
 ```
 
+### On macOS
+
+Use a virtualenv. Homebrew and system Python both refuse a bare `pip install`
+these days with `error: externally-managed-environment`:
+
+```bash
+cd internship-finder
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+python demo.py                                    # offline, proves it works
+python cli.py --location "Boston, MA" --companies 5   # the real thing
+python app.py                                     # web UI
+```
+
+Two Mac-specific things:
+
+- **Ports 5000 and 5001 are taken by AirPlay Receiver.** `app.py` steps forward
+  to the next free port and prints the URL it actually bound, so you don't need
+  to do anything — but that's why it may say 5002. To reclaim 5000/5001,
+  turn off System Settings → General → AirDrop & Handoff → AirPlay Receiver.
+- **Leave `ENABLE_SMTP_PROBE=false`.** Most home ISPs block outbound port 25,
+  so it will hang rather than verify. The MX check works fine regardless.
+
 The UI's source chips show green for whatever's configured. With no keys at all
 you get OpenStreetMap + site crawling, which is enough to be useful.
 

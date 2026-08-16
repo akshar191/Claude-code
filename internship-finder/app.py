@@ -163,5 +163,37 @@ def export_csv():
     )
 
 
+def free_port(host, preferred, tries=20):
+    """First free port at or after `preferred`.
+
+    macOS runs AirPlay Receiver on 5000 and 5001 by default, so the obvious
+    Flask ports are usually taken on a Mac. Rather than dying with EADDRINUSE,
+    step forward until something binds.
+    """
+    import socket
+
+    for candidate in range(preferred, preferred + tries):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            try:
+                probe.bind((host, candidate))
+                return candidate
+            except OSError:
+                continue
+    return preferred
+
+
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5001, debug=True)
+    import argparse
+    import os
+
+    parser = argparse.ArgumentParser(description="Run the Internship Finder web UI.")
+    parser.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"))
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", 5001)))
+    parser.add_argument("--debug", action="store_true")
+    args = parser.parse_args()
+
+    port = free_port(args.host, args.port)
+    if port != args.port:
+        print("Port %d was busy (AirPlay Receiver, if you're on a Mac)." % args.port)
+    print("\n  Internship Finder -> http://%s:%d\n" % (args.host, port))
+    app.run(host=args.host, port=port, debug=args.debug)

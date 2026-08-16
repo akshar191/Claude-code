@@ -226,6 +226,19 @@ def run(criteria, on_progress=None):
             -(c.get("relevance") or 0),
         )
     )
+
+    # Provider failures are recorded per company. Without lifting them here they
+    # never reach the caller, so a rejected API key looks identical to a company
+    # that simply has no staff listed.
+    problems = {}
+    for company in processed:
+        for note in company.get("notes") or []:
+            provider, _, reason = note.partition(": ")
+            summary = "%s: %s" % (provider.split(" (")[0], reason)
+            problems[summary] = problems.get(summary, 0) + 1
+    for summary, count in sorted(problems.items()):
+        notes.append("%s (on %d compan%s)" % (summary, count, "y" if count == 1 else "ies"))
+
     return kept, notes
 
 

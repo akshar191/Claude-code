@@ -70,9 +70,9 @@ def main(argv=None):
         if not company.get("contacts"):
             print("  no senior contacts found")
         for contact in company.get("contacts") or []:
-            print("  %-28s %-34s %-38s %s%%" % (
-                contact["name"][:28],
-                (contact.get("title") or "")[:34],
+            print("  %-26s %-46s %-38s %s%%" % (
+                contact["name"][:26],
+                (contact.get("title") or "")[:46],
                 contact.get("email") or "-",
                 int((contact.get("email_confidence") or 0) * 100),
             ))

@@ -127,6 +127,17 @@ class CredentialStripping(unittest.TestCase):
     def test_keeps_something_when_the_title_is_only_credentials(self):
         self.assertEqual(people.strip_credentials("PhD"), "PhD")
 
+    def test_strips_stacked_certifications(self):
+        # Real titles from a live vanderweil.com run.
+        self.assertEqual(people.strip_credentials("LEED AP BD+C President Boston"),
+                         "President Boston")
+        self.assertEqual(people.strip_credentials("PE CEO Emeritus and Chairman"),
+                         "CEO Emeritus and Chairman")
+
+    def test_never_strips_the_job_itself(self):
+        for title in ("CEO", "CTO & Co-Founder", "VP Engineering", "COO"):
+            self.assertEqual(people.strip_credentials(title), title)
+
     def test_cleans_titles_during_extraction(self):
         html = """<html><body><div>
                   <h3>Bill Townsend</h3><p>PhD, CEO &amp; Chairman</p></div></body></html>"""
@@ -134,6 +145,42 @@ class CredentialStripping(unittest.TestCase):
         person = {p["name"]: p for p in found}["Bill Townsend"]
         self.assertEqual(person["title"], "CEO & Chairman")
         self.assertEqual(person["rank"], 5)
+
+
+class DepartmentsAreNotPeople(unittest.TestCase):
+    """rwsullivan.com produced a contact called 'Facilities Management'."""
+
+    def test_rejects_a_name_contained_in_its_own_title(self):
+        html = """<html><body><div><h3>Facilities Management</h3>
+                  <p>Director of Facilities Management</p></div></body></html>"""
+        found, _ = people.extract_people(html)
+        self.assertEqual(found, [])
+
+    def test_still_accepts_a_real_person(self):
+        html = """<html><body><div><h3>Sofia Marino</h3>
+                  <p>Director of Facilities Management</p></div></body></html>"""
+        found, _ = people.extract_people(html)
+        self.assertEqual([p["name"] for p in found], ["Sofia Marino"])
+
+
+class ProviderProblemsSurface(unittest.TestCase):
+    """A rejected API key must not look like 'this company has no staff'."""
+
+    def test_company_level_notes_reach_the_caller(self):
+        processed = [
+            {"name": "A", "notes": ["Hunter (a.com): auth rejected (check the API key)"],
+             "contacts": [], "size_ok": True},
+            {"name": "B", "notes": ["Hunter (b.com): auth rejected (check the API key)"],
+             "contacts": [], "size_ok": True},
+        ]
+        problems = {}
+        for company in processed:
+            for note in company["notes"]:
+                provider, _, reason = note.partition(": ")
+                summary = "%s: %s" % (provider.split(" (")[0], reason)
+                problems[summary] = problems.get(summary, 0) + 1
+        self.assertEqual(problems,
+                         {"Hunter: auth rejected (check the API key)": 2})
 
 
 class OverpassQuery(unittest.TestCase):

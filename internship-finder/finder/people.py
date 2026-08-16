@@ -43,17 +43,49 @@ _CREDENTIALS = (
     r"m\.?sc?|b\.?sc?|b\.?a|m\.?a|eit|leed(?:\s+ap)?|aia|ncarb|cpa|esq|j\.?d|"
     r"m\.?p\.?h|d\.?p\.?t|p\.?g|l\.?e\.?e\.?d|se|cissp|cfp"
 )
-_CREDENTIAL_HEAD_RE = re.compile(r"^(?:(?:%s)\b[\s,./|-]*)+" % _CREDENTIALS, re.IGNORECASE)
-_CREDENTIAL_TAIL_RE = re.compile(r"(?:[\s,./|-]*\b(?:%s))+$" % _CREDENTIALS, re.IGNORECASE)
+_CREDENTIAL_RE = re.compile(r"^(?:%s)$" % _CREDENTIALS, re.IGNORECASE)
+
+# Acronyms that ARE the job, so they must survive the credential strip.
+_TITLE_ACRONYMS = {
+    "CEO", "CTO", "COO", "CFO", "CIO", "CSO", "CPO", "CRO", "CCO", "CMO",
+    "CDO", "CHRO", "CXO", "VP", "SVP", "EVP", "AVP", "GM", "PM", "HR", "IT",
+    "QA", "RD", "PI",
+}
+
+# Credential-shaped: short, upper-case, possibly with punctuation. Catches the
+# long tail (BD+C, CxA, CEM, RA, NCARB) without listing every certification
+# in the construction industry.
+_CREDENTIAL_SHAPE_RE = re.compile(r"^[A-Z][A-Za-z]{0,4}(?:[+/&-][A-Za-z]{1,3})?\.?$")
+
+
+def _is_credential(token):
+    bare = token.strip(",.;|")
+    if not bare or bare.upper() in _TITLE_ACRONYMS:
+        return False
+    if _CREDENTIAL_RE.match(bare):
+        return True
+    # All-caps and short, e.g. "AP", "BD+C", "RA" -- but not a normal word.
+    return bool(_CREDENTIAL_SHAPE_RE.match(bare)) and bare.upper() == bare
 
 
 def strip_credentials(title):
-    """'PhD CEO & Chairman' -> 'CEO & Chairman'."""
-    cleaned = _CREDENTIAL_HEAD_RE.sub("", " ".join((title or "").split()))
-    cleaned = _CREDENTIAL_TAIL_RE.sub("", cleaned).strip(" ,.|-")
-    # If the title was nothing but credentials, keep the original rather than
-    # returning an empty string.
-    return cleaned or " ".join((title or "").split())
+    """'LEED AP BD+C President' -> 'President'; 'PhD, CEO' -> 'CEO'.
+
+    Team pages stack certifications around the name, and splitting on the comma
+    leaves them glued to the title. Walk in from both ends dropping
+    credential-shaped tokens, stopping at the first real word.
+    """
+    tokens = " ".join((title or "").split()).split(" ")
+    original = " ".join(tokens)
+
+    while tokens and _is_credential(tokens[0]):
+        tokens.pop(0)
+    while tokens and _is_credential(tokens[-1]):
+        tokens.pop()
+
+    cleaned = " ".join(tokens).strip(" ,.;|-")
+    # If it was nothing but credentials, keep the original over an empty string.
+    return cleaned or original
 
 # Words that show up in title case on websites but are never part of a person's
 # name. Any candidate containing one of these is rejected.
@@ -165,6 +197,11 @@ def extract_people(html):
         title = strip_credentials(title)
         rank, phrase = industries.rank_title(title)
         if rank == 0:
+            return
+        # "Facilities Management" / "Director of Facilities Management" -- when
+        # the name is contained in its own title it is a department, not a person.
+        name_slug = text.slug(name)
+        if name_slug and name_slug in text.slug(title):
             return
         key = text.slug(name)
         existing = found.get(key)

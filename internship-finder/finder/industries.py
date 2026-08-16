@@ -154,8 +154,36 @@ INDUSTRIES = {
 }
 
 
+# Matched against OpenStreetMap `name` tags to catch firms that are in the
+# field but not tagged office=engineering -- which is most of them, since OSM
+# tagging is volunteer work and wildly inconsistent. Without this, a Boston
+# search returns four results, three of which are food factories that happen
+# to be tagged man_made=works.
+OSM_NAME_HINTS = {
+    "mechanical_engineering": "[Ee]ngineer|[Mm]echanic|[Rr]obotic|[Mm]achin|[Pp]recision|[Tt]ool|[Mm]anufactur|[Dd]ynamics",
+    "software": "[Ss]oftware|[Tt]echnolog|[Dd]igital|[Ll]abs|[Dd]ata|[Cc]loud|[Ss]ystems",
+    "biotech": "[Bb]io|[Tt]herapeutic|[Pp]harma|[Gg]enom|[Ll]ife [Ss]cience|[Dd]iagnostic",
+    "aerospace": "[Aa]ero|[Aa]viation|[Ss]pace|[Ff]light|[Ss]atellite|[Dd]efense",
+    "robotics": "[Rr]obotic|[Aa]utomation|[Aa]utonom|[Mm]echatronic|[Dd]ynamics",
+    "civil_engineering": "[Ee]ngineer|[Cc]ivil|[Ss]tructural|[Gg]eotech|[Ss]urvey|[Cc]onsulting [Gg]roup",
+    "electrical_engineering": "[Ee]lectr|[Ee]ngineer|[Cc]ircuit|[Ee]mbedded|[Ss]emiconductor",
+    "manufacturing": "[Mm]anufactur|[Ff]abricat|[Mm]achin|[Tt]ool|[Ii]ndustr|[Pp]recision|[Ww]eld",
+    "medical_devices": "[Mm]edical|[Ss]urgical|[Bb]io|[Dd]evice|[Hh]ealth",
+    "energy": "[Ee]nergy|[Ss]olar|[Bb]attery|[Pp]ower|[Rr]enewable|[Gg]rid",
+    "architecture": "[Aa]rchitect|[Dd]esign|[Ss]tudio|[Pp]lanning",
+    "finance": "[Cc]apital|[Pp]artners|[Ii]nvest|[Aa]dvisor|[Ww]ealth|[Ff]inancial",
+    "consulting": "[Cc]onsult|[Aa]dvisor|[Pp]artners|[Gg]roup",
+    "marketing": "[Mm]arketing|[Bb]randing|[Cc]reative|[Aa]gency|[Ss]tudio|[Mm]edia",
+    "other": None,
+}
+
+
 def get(key):
     return INDUSTRIES.get(key or "", INDUSTRIES["other"])
+
+
+def osm_name_hint(key):
+    return OSM_NAME_HINTS.get(key or "")
 
 
 def choices():

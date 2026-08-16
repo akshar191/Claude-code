@@ -108,6 +108,61 @@ class PeopleExtraction(unittest.TestCase):
         self.assertEqual(self.by_name["Sofia Marino"]["first_name"], "Sofia")
 
 
+class CredentialStripping(unittest.TestCase):
+    """Real titles from a live barrett.com run came back as 'PhD CEO & Chairman'."""
+
+    def test_strips_leading_credentials(self):
+        self.assertEqual(people.strip_credentials("PhD CEO & Chairman"), "CEO & Chairman")
+        self.assertEqual(people.strip_credentials("OTR/L President and CCO"),
+                         "President and CCO")
+
+    def test_strips_trailing_credentials(self):
+        self.assertEqual(people.strip_credentials("Director of Engineering, PE"),
+                         "Director of Engineering")
+
+    def test_leaves_clean_titles_alone(self):
+        self.assertEqual(people.strip_credentials("VP of Engineering"), "VP of Engineering")
+        self.assertEqual(people.strip_credentials("Co-Founder & CEO"), "Co-Founder & CEO")
+
+    def test_keeps_something_when_the_title_is_only_credentials(self):
+        self.assertEqual(people.strip_credentials("PhD"), "PhD")
+
+    def test_cleans_titles_during_extraction(self):
+        html = """<html><body><div>
+                  <h3>Bill Townsend</h3><p>PhD, CEO &amp; Chairman</p></div></body></html>"""
+        found, _ = people.extract_people(html)
+        person = {p["name"]: p for p in found}["Bill Townsend"]
+        self.assertEqual(person["title"], "CEO & Chairman")
+        self.assertEqual(person["rank"], 5)
+
+
+class OverpassQuery(unittest.TestCase):
+    def test_includes_name_regex_clauses_for_recall(self):
+        query = pipeline.companies_mod._overpass_query(
+            ['["office"="engineering"]'], "[Rr]obotic", 42.36, -71.05, 40000
+        )
+        self.assertIn('["office"="engineering"]', query)
+        self.assertIn('["name"~"[Rr]obotic"]', query)
+        self.assertIn("around:40000", query)
+
+    def test_name_clauses_are_scoped_to_business_tags(self):
+        query = pipeline.companies_mod._overpass_query([], "[Rr]obotic", 42.36, -71.05, 40000)
+        # Never a bare name search -- that would match every object in the city.
+        for line in query.splitlines():
+            if '["name"~' in line:
+                self.assertTrue(
+                    any(scope in line for scope in
+                        ('["office"]', '["man_made"="works"]', '["craft"]', '["industrial"]')),
+                    "unscoped name search: %s" % line,
+                )
+
+    def test_omits_name_clauses_when_there_is_no_hint(self):
+        query = pipeline.companies_mod._overpass_query(
+            ['["office"="company"]'], None, 42.36, -71.05, 40000
+        )
+        self.assertNotIn('["name"~', query)
+
+
 class EmailHarvesting(unittest.TestCase):
     def test_finds_mailto_and_plain_addresses(self):
         found = emails.harvest(TEAM_PAGE)

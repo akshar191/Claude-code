@@ -26,6 +26,8 @@ def main(argv=None):
     parser.add_argument("--max-employees", type=int, default=200)
     parser.add_argument("--min-seniority", type=int, default=3,
                         help="1=any employee ... 5=founder/CEO only")
+    parser.add_argument("--radius-km", type=int, default=40,
+                        help="how far from the city centre to search (default 40)")
     parser.add_argument("--companies", type=int, default=10)
     parser.add_argument("--per-company", type=int, default=3)
     parser.add_argument("--no-verify", action="store_true")
@@ -46,6 +48,7 @@ def main(argv=None):
         "min_seniority": args.min_seniority,
         "max_companies": args.companies,
         "contacts_per_company": args.per_company,
+        "radius_m": args.radius_km * 1000,
         "verify_emails": not args.no_verify,
     }
 

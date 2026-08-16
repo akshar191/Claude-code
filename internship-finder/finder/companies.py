@@ -72,12 +72,20 @@ def geocode(location):
     return result
 
 
-def _overpass_query(filters, lat, lon, radius_m):
-    clauses = "\n".join(
-        '  nwr%s(around:%d,%f,%f);' % (tag_filter, radius_m, lat, lon)
-        for tag_filter in filters
-    )
-    return "[out:json][timeout:60];\n(\n%s\n);\nout center 300;" % clauses
+# Scopes a name-regex search so it cannot match every named object in the city.
+_NAME_SCOPES = ('["office"]', '["man_made"="works"]', '["craft"]', '["industrial"]')
+
+
+def _overpass_query(filters, name_hint, lat, lon, radius_m):
+    def around(tag_filter):
+        return "  nwr%s(around:%d,%f,%f);" % (tag_filter, radius_m, lat, lon)
+
+    clauses = [around(tag_filter) for tag_filter in filters]
+    if name_hint:
+        # Catches firms whose tags are generic but whose name gives them away.
+        clauses += [around('%s["name"~"%s"]' % (scope, name_hint)) for scope in _NAME_SCOPES]
+
+    return "[out:json][timeout:90];\n(\n%s\n);\nout center 400;" % "\n".join(clauses)
 
 
 def from_openstreetmap(criteria, geo):
@@ -87,9 +95,13 @@ def from_openstreetmap(criteria, geo):
 
     industry = industries.get(criteria.get("industry"))
     query = _overpass_query(
-        industry["osm"], geo["lat"], geo["lon"], int(criteria.get("radius_m") or 25000)
+        industry["osm"],
+        industries.osm_name_hint(criteria.get("industry")),
+        geo["lat"],
+        geo["lon"],
+        int(criteria.get("radius_m") or 25000),
     )
-    payload, error = web.api("POST", OVERPASS, data={"data": query}, timeout=75)
+    payload, error = web.api("POST", OVERPASS, data={"data": query}, timeout=105)
     if error:
         return [], "OpenStreetMap/Overpass: %s" % error
 

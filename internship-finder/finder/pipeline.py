@@ -21,7 +21,7 @@ DEFAULTS = {
     "min_seniority": 3,
     "max_companies": 15,
     "contacts_per_company": 3,
-    "radius_m": 25000,
+    "radius_m": 40000,
     "verify_emails": True,
     "include_general_inbox": True,
 }

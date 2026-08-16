@@ -35,6 +35,26 @@ _NAME_RE = re.compile(r"^(%s)(?:\s+[A-Z][a-z]?\.?)?\s+(%s)$" % (_NAME_TOKEN, _NA
 _NAME_IN_TEXT = re.compile(r"\b(%s)(?:\s+[A-Z]\.?)?\s+(%s)\b" % (_NAME_TOKEN, _NAME_TOKEN))
 _LINKEDIN_RE = re.compile(r"linkedin\.com/in/([A-Za-z0-9\-_%]+)", re.IGNORECASE)
 
+# Professional credentials that sit next to a name on a team page. Splitting
+# "Bill Townsend, PhD, CEO" on the comma leaves "PhD" glued to the front of the
+# title, so strip them off both ends.
+_CREDENTIALS = (
+    r"ph\.?d|m\.?d|m\.?b\.?a|p\.?e|otr/?l|r\.?n|d\.?d\.?s|d\.?v\.?m|c\.?f\.?a|pmp|"
+    r"m\.?sc?|b\.?sc?|b\.?a|m\.?a|eit|leed(?:\s+ap)?|aia|ncarb|cpa|esq|j\.?d|"
+    r"m\.?p\.?h|d\.?p\.?t|p\.?g|l\.?e\.?e\.?d|se|cissp|cfp"
+)
+_CREDENTIAL_HEAD_RE = re.compile(r"^(?:(?:%s)\b[\s,./|-]*)+" % _CREDENTIALS, re.IGNORECASE)
+_CREDENTIAL_TAIL_RE = re.compile(r"(?:[\s,./|-]*\b(?:%s))+$" % _CREDENTIALS, re.IGNORECASE)
+
+
+def strip_credentials(title):
+    """'PhD CEO & Chairman' -> 'CEO & Chairman'."""
+    cleaned = _CREDENTIAL_HEAD_RE.sub("", " ".join((title or "").split()))
+    cleaned = _CREDENTIAL_TAIL_RE.sub("", cleaned).strip(" ,.|-")
+    # If the title was nothing but credentials, keep the original rather than
+    # returning an empty string.
+    return cleaned or " ".join((title or "").split())
+
 # Words that show up in title case on websites but are never part of a person's
 # name. Any candidate containing one of these is rejected.
 _NOT_NAME_WORDS = {
@@ -142,6 +162,7 @@ def extract_people(html):
     found = {}
 
     def record(name, title):
+        title = strip_credentials(title)
         rank, phrase = industries.rank_title(title)
         if rank == 0:
             return

@@ -129,9 +129,27 @@ def process_company(company, criteria, on_progress=None):
     company["email_pattern"] = pattern
     company["email_pattern_samples"] = samples
 
-    staff = [p for p in staff if (p.get("rank") or 0) >= criteria["min_seniority"]]
-    staff.sort(key=lambda p: (-(p.get("rank") or 0), p.get("name") or ""))
-    staff = staff[: criteria["contacts_per_company"]]
+    limit = criteria["contacts_per_company"]
+    senior = [p for p in staff if (p.get("rank") or 0) >= criteria["min_seniority"]]
+    senior.sort(key=lambda p: (-(p.get("rank") or 0), p.get("name") or ""))
+
+    # A provider-verified address is worth keeping even when the person's title
+    # does not clear the seniority bar. Hunter hands back confirmed contacts
+    # with a thin or missing title, and dropping those loses the best address
+    # at the company in favour of a guess at someone more senior.
+    chosen = {id(person) for person in senior}
+    confirmed = [
+        person
+        for person in staff
+        if id(person) not in chosen
+        and person.get("email")
+        and (person.get("email_confidence") or 0) >= 0.8
+    ]
+    confirmed.sort(key=lambda p: (-(p.get("email_confidence") or 0), p.get("name") or ""))
+
+    staff = senior[:limit]
+    if len(staff) < limit:
+        staff += confirmed[: limit - len(staff)]
 
     for person in staff:
         person["seniority"] = industries.SENIORITY_LABELS.get(person.get("rank") or 0)

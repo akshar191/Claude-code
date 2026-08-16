@@ -106,13 +106,36 @@ def is_role_account(email):
     return local in ROLE_LOCALS or local.replace(".", "") in ROLE_LOCALS
 
 
-def render(pattern, first, last):
+def render(pattern, first, last, middle=None):
+    """Build a local part from a pattern.
+
+    Hunter returns its own patterns here, including ones with a middle initial
+    ({f}{m}{last}). We rarely know the middle name, so {m} collapses to nothing
+    and any separator it leaves behind is cleaned up. An unrecognised
+    placeholder returns None rather than raising -- a bad pattern from a
+    provider must not take the whole company's contacts down with it.
+    """
     first_slug, last_slug = text.slug(first), text.slug(last)
     if not first_slug or not last_slug:
         return None
-    local = pattern.format(
-        first=first_slug, last=last_slug, f=first_slug[0], l=last_slug[0]
-    )
+
+    middle_slug = text.slug(middle or "")
+    fields = {
+        "first": first_slug,
+        "last": last_slug,
+        "f": first_slug[0],
+        "l": last_slug[0],
+        "m": middle_slug[:1],
+        "mi": middle_slug[:1],
+        "middle": middle_slug,
+    }
+    try:
+        local = pattern.format(**fields)
+    except (KeyError, IndexError, ValueError):
+        return None
+
+    # An empty {m} can leave "alex..vanderweil" or a trailing dot behind.
+    local = re.sub(r"([._-])\1+", r"\1", local).strip("._-")
     return local if 1 <= len(local) <= 64 else None
 
 

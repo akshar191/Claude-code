@@ -133,5 +133,115 @@ class Pipeline(unittest.TestCase):
         self.assertIn("jobs@acmerobotics.test", self.company["published_emails"])
 
 
+HUNTER_PAGES = {
+    "/robots.txt": ("text/plain", "User-agent: *\nAllow: /\n"),
+    "/": (
+        "text/html",
+        """<html><body><h1>Vanderweil Engineers</h1>
+             <nav><a href="/leadership">Leadership</a></nav></body></html>""",
+    ),
+    "/leadership": (
+        "text/html",
+        """<html><body>
+             <div><h3>Alex Vanderweil</h3><p>LEED AP BD+C President</p></div>
+             <div><h3>Eli Sherman</h3><p>PE CEO Emeritus and Chairman</p></div>
+           </body></html>""",
+    ),
+}
+
+
+class HunterHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        content_type, body = HUNTER_PAGES.get(self.path, (None, None))
+        if body is None:
+            self.send_error(404)
+            return
+        encoded = body.encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "%s; charset=utf-8" % content_type)
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
+
+    def log_message(self, *args):
+        pass
+
+
+class HunterPatternIsUsed(unittest.TestCase):
+    """The live run guessed alex.vanderweil@ when Hunter said the format is
+    {f}{last}, i.e. avanderweil@. Every named address was wrong."""
+
+    @classmethod
+    def setUpClass(cls):
+        from finder import people as people_mod
+        from finder import providers
+
+        cls.server = socketserver.TCPServer(("127.0.0.1", 0), HunterHandler)
+        port = cls.server.server_address[1]
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+
+        cls.original_search = providers.hunter_domain_search
+        cls.original_key = config.HUNTER_API_KEY
+        config.HUNTER_API_KEY = "test-key"
+
+        def fake_domain_search(domain, limit=25):
+            return {
+                "pattern": "{f}{last}",
+                "organization": "Vanderweil Engineers",
+                # A confirmed address whose title does not clear "director and up".
+                "people": [{
+                    "email": "dmonahan@vanderweil.com",
+                    "first_name": "Dennis", "last_name": "Monahan",
+                    "title": "", "confidence": 99, "source": "hunter",
+                }],
+            }, None
+
+        providers.hunter_domain_search = fake_domain_search
+        people_mod.providers.hunter_domain_search = fake_domain_search
+
+        cls.company = pipeline.process_company(
+            {
+                "name": "Vanderweil Engineers",
+                "domain": "vanderweil.com",
+                "website": "http://127.0.0.1:%d/" % port,
+                "source": "google_places",
+            },
+            pipeline.normalize({"min_seniority": 3, "verify_emails": False,
+                                "contacts_per_company": 3}),
+        )
+        cls.contacts = {c["name"]: c for c in cls.company["contacts"]}
+
+        providers.hunter_domain_search = cls.original_search
+        people_mod.providers.hunter_domain_search = cls.original_search
+        config.HUNTER_API_KEY = cls.original_key
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def test_adopts_the_pattern_hunter_reported(self):
+        self.assertEqual(self.company["email_pattern"], "{f}{last}")
+
+    def test_builds_addresses_in_that_format_not_the_default(self):
+        self.assertEqual(self.contacts["Alex Vanderweil"]["email"],
+                         "avanderweil@vanderweil.com")
+        self.assertEqual(self.contacts["Eli Sherman"]["email"],
+                         "esherman@vanderweil.com")
+
+    def test_pattern_backed_guesses_beat_blind_ones(self):
+        self.assertGreaterEqual(
+            self.contacts["Alex Vanderweil"]["email_confidence"], 0.5
+        )
+
+    def test_keeps_a_confirmed_address_with_a_weak_title(self):
+        self.assertIn("Dennis Monahan", self.contacts)
+        self.assertEqual(self.contacts["Dennis Monahan"]["email"],
+                         "dmonahan@vanderweil.com")
+
+    def test_credentials_are_stripped_from_the_crawled_titles(self):
+        self.assertEqual(self.contacts["Alex Vanderweil"]["title"], "President")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

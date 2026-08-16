@@ -11,6 +11,7 @@ confident we are and *why*.
 ```
 python app.py          # web UI at http://127.0.0.1:5001
 python cli.py --help   # same thing from the terminal
+python demo.py         # see the output format offline, no keys, no quota
 ```
 
 ## Why not just use Apollo/RocketReach
@@ -149,6 +150,7 @@ throwing, so a broken provider degrades the search instead of killing it.
 ```
 app.py                  Flask UI + JSON API
 cli.py                  command-line entry point
+demo.py                 offline run against local fixture sites
 finder/
   config.py             env-driven settings
   web.py                polite HTTP: robots.txt, per-host rate limiting

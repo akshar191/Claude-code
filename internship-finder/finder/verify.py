@@ -31,6 +31,24 @@ DISPOSABLE_DOMAINS = {
 _lock = threading.Lock()
 _mx_cache = {}
 _catch_all_cache = {}
+_paid_calls = 0
+
+
+def reset_budget():
+    """Called at the start of each search so the cap is per-run, not per-process."""
+    global _paid_calls
+    with _lock:
+        _paid_calls = 0
+
+
+def _claim_paid_call():
+    """Spend one paid verification credit, or refuse if this run is out."""
+    global _paid_calls
+    with _lock:
+        if _paid_calls >= config.HUNTER_VERIFY_BUDGET:
+            return False
+        _paid_calls += 1
+        return True
 
 _resolver = dns.resolver.Resolver()
 _resolver.lifetime = 5.0
@@ -147,7 +165,7 @@ def verify(email, use_paid=True):
         result["detail"] = "domain does not accept mail (no MX record)"
         return result
 
-    if use_paid and config.HUNTER_API_KEY:
+    if use_paid and config.HUNTER_API_KEY and _claim_paid_call():
         payload, error = providers.hunter_verify(email)
         if payload and payload.get("status"):
             hunter_status = payload["status"]

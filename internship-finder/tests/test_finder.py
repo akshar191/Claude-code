@@ -14,7 +14,7 @@ from finder import config  # noqa: E402
 
 config.DB_PATH = os.path.join(tempfile.mkdtemp(), "test.db")
 
-from finder import emails, industries, outreach, people, pipeline, store, text  # noqa: E402
+from finder import emails, industries, outreach, people, pipeline, store, text, verify  # noqa: E402
 
 TEAM_PAGE = """
 <html><body>
@@ -280,6 +280,40 @@ class SizeFiltering(unittest.TestCase):
         )
         self.assertTrue(ok)
         self.assertIsNone(note)
+
+
+class PaidVerificationBudget(unittest.TestCase):
+    """Hunter's free tier is 25/month -- one search must not drain it."""
+
+    def setUp(self):
+        self.original_key = config.HUNTER_API_KEY
+        self.original_budget = config.HUNTER_VERIFY_BUDGET
+        config.HUNTER_API_KEY = "test-key"
+        config.HUNTER_VERIFY_BUDGET = 3
+        verify.reset_budget()
+
+    def tearDown(self):
+        config.HUNTER_API_KEY = self.original_key
+        config.HUNTER_VERIFY_BUDGET = self.original_budget
+        verify.reset_budget()
+
+    def test_stops_spending_once_the_budget_is_gone(self):
+        self.assertEqual([verify._claim_paid_call() for _ in range(5)],
+                         [True, True, True, False, False])
+
+    def test_budget_resets_between_searches(self):
+        for _ in range(3):
+            verify._claim_paid_call()
+        self.assertFalse(verify._claim_paid_call())
+        verify.reset_budget()
+        self.assertTrue(verify._claim_paid_call())
+
+    def test_no_spending_without_a_key(self):
+        config.HUNTER_API_KEY = ""
+        # An unroutable domain: falls out at the MX check before any paid call.
+        result = verify.verify("someone@invalid-domain-that-cannot-exist-xyz.test")
+        self.assertEqual(result["status"], "invalid")
+        self.assertEqual(verify._paid_calls, 0)
 
 
 class Drafting(unittest.TestCase):

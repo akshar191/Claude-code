@@ -150,7 +150,10 @@ def process_company(company, criteria, on_progress=None):
                 person["alternates"] = [g["email"] for g in guesses[1:]]
 
         if person.get("email") and criteria.get("verify_emails"):
-            check = verify.verify(person["email"])
+            # An address Hunter already gave us arrives scored -- re-verifying it
+            # through Hunter spends a credit to learn nothing.
+            from_hunter = "hunter" in (person.get("source") or "")
+            check = verify.verify(person["email"], use_paid=not from_hunter)
             person["email_status"] = check["status"]
             person["email_detail"] = check["detail"]
             person["email_confidence"] = verify.score(check, person.get("email_confidence"))
@@ -190,6 +193,7 @@ def process_company(company, criteria, on_progress=None):
 def run(criteria, on_progress=None):
     """Full search. Returns (companies, notes)."""
     criteria = normalize(criteria)
+    verify.reset_budget()
     found, notes = companies_mod.discover(criteria, on_progress=on_progress)
     shortlist = found[: criteria["max_companies"]]
 

@@ -34,6 +34,10 @@ CRAWL_DELAY = _num("CRAWL_DELAY", 1.0)
 MAX_PAGES_PER_SITE = _num("MAX_PAGES_PER_SITE", 8)
 RESPECT_ROBOTS = _flag("RESPECT_ROBOTS", True)
 
+# Hunter's free tier is small, and every email-verifier call spends from it.
+# Cap how many a single search may spend so one run cannot drain the month.
+HUNTER_VERIFY_BUDGET = _num("HUNTER_VERIFY_BUDGET", 10)
+
 ENABLE_SMTP_PROBE = _flag("ENABLE_SMTP_PROBE", False)
 SMTP_FROM = os.environ.get("SMTP_FROM", "verify@example.com").strip()
 SMTP_TIMEOUT = _num("SMTP_TIMEOUT", 8.0)

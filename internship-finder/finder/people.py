@@ -19,11 +19,17 @@ from . import config, emails, industries, providers, text, web
 
 # Path/anchor fragments that suggest a page lists people, and how much we
 # want it. Higher wins when we can only afford a handful of fetches.
+# Matched against the LAST path segment, not the whole path. Matching the whole
+# path burns the crawl budget on /careers/workplace-culture and
+# /who-we-are/giving-back, which never list anybody, while still needing to
+# allow /who-we-are/our-people.
 PAGE_HINTS = [
-    (5, ("leadership", "our-team", "ourteam", "meet-the-team", "our-people", "founders")),
-    (4, ("team", "people", "staff", "management", "executives", "who-we-are")),
-    (3, ("about-us", "aboutus", "about", "company", "our-story")),
-    (2, ("contact", "contact-us", "careers", "jobs")),
+    (5, ("leadership", "our-team", "ourteam", "meet-the-team", "our-people",
+         "ourpeople", "founders", "leadership-team", "our-leadership")),
+    (4, ("team", "people", "staff", "management", "executives", "who-we-are",
+         "our-firm", "principals")),
+    (3, ("about-us", "aboutus", "about", "our-story", "company")),
+    (2, ("contact", "contact-us", "contactus")),
 ]
 
 _SEGMENT_RE = re.compile(r"\s+[|•·—–]\s+|\s+-\s+|\s*[,;]\s*|\n+")
@@ -98,6 +104,9 @@ _NOT_NAME_WORDS = {
     "york", "san", "los", "inc", "llc", "ltd", "corp", "company", "group",
     "partners", "associates", "consulting", "engineering", "technologies",
     "systems", "industries", "labs", "studio", "design", "capital", "ventures",
+    # Announcement/headline verbs: "Welcoming Hiten Sonpal: RISE Robotics' New CEO"
+    "welcoming", "welcome", "introducing", "announcing", "meet", "congratulations",
+    "congrats", "presenting", "featuring", "spotlight", "interview", "podcast",
     "email", "phone", "call", "click", "here", "sign", "log", "search", "menu",
     "skip", "content", "next", "previous", "page", "case", "study", "studies",
     "project", "projects", "client", "clients", "work", "portfolio", "let",
@@ -151,7 +160,12 @@ def _pair_from_block(block):
     if not name:
         match = _NAME_IN_TEXT.search(block)
         if match:
-            candidate = _looks_like_name(match.group(0))
+            # Anything before the match means we are picking a name out of the
+            # middle of a sentence -- "M Dinne Flansbury" matches as "Dinne
+            # Flansbury", silently dropping a character of the real name.
+            preceding = block[: match.start()].strip()
+            starts_cleanly = not preceding or preceding[-1] in ",|·—–•:-"
+            candidate = _looks_like_name(match.group(0)) if starts_cleanly else None
             if candidate:
                 name = candidate
                 remainder = block[match.end():].strip(" ,-|·—–•")
@@ -202,6 +216,10 @@ def extract_people(html):
 
     def record(name, title):
         title = strip_credentials(title)
+        # A colon means a headline, not a job title: "Sonpal: RISE Robotics'
+        # New CEO" is a blog post, and the "name" beside it is the verb.
+        if ":" in title:
+            return
         rank, phrase = industries.rank_title(title)
         if rank == 0:
             return
@@ -270,10 +288,15 @@ def candidate_pages(base_url, soup, limit):
         if re.search(r"\.(pdf|jpg|jpeg|png|gif|svg|zip|mp4|docx?|xlsx?)$", parts.path, re.I):
             continue
 
-        haystack = (parts.path + " " + anchor.get_text(" ", strip=True)).lower()
+        segments = [s for s in parts.path.lower().strip("/").split("/") if s]
+        last_segment = segments[-1] if segments else ""
+        anchor_text = anchor.get_text(" ", strip=True).lower().strip()
+
         best = 0
         for weight, fragments in PAGE_HINTS:
-            if any(fragment in haystack for fragment in fragments):
+            # Exact match on the final path segment, or the link text is
+            # literally "Our Team" / "Leadership".
+            if last_segment in fragments or anchor_text.replace(" ", "-") in fragments:
                 best = max(best, weight)
         if best:
             url = url.rstrip("/")

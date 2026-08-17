@@ -133,6 +133,18 @@ def process_company(company, criteria, on_progress=None):
     if site["error"]:
         company["crawl_error"] = site["error"]
 
+    # A directory site lists other companies' founders. Scraping people off one
+    # invents contacts at an organisation that never employed them.
+    is_directory, evidence = companies_mod.looks_like_directory(company)
+    if is_directory:
+        company["is_directory"] = True
+        company["contacts"] = []
+        company["notes"] = ["not an employer (site reads as a directory: %r)" % evidence]
+        company["size_ok"] = False
+        company["size_note"] = "directory / membership organisation"
+        company.pop("site_text", None)
+        return company
+
     provider_people, provider_emails, provider_pattern, notes = people_mod.from_providers(
         company, criteria
     )

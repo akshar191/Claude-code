@@ -240,6 +240,141 @@ class ProviderProblemsSurface(unittest.TestCase):
                          {"Hunter: auth rejected (check the API key)": 2})
 
 
+class FakeContactsFromLiveRuns(unittest.TestCase):
+    """Every string here is one this tool actually produced as a 'person'."""
+
+    def extract(self, html):
+        found, _ = people.extract_people("<html><body><div>%s</div></body></html>" % html)
+        return [(p["name"], p["title"]) for p in found]
+
+    def test_rejects_a_name_with_a_dropped_leading_token(self):
+        # Produced "Dinne Flansbury" -- silently losing the "M".
+        self.assertEqual(
+            self.extract("<h3>M Dinne Flansbury</h3><p>Director of Operations</p>"), []
+        )
+
+    def test_rejects_headlines_with_a_colon(self):
+        self.assertEqual(
+            self.extract("<h3>Welcoming Hiten</h3><p>Sonpal: RISE Robotics' New CEO</p>"),
+            [],
+        )
+
+    def test_rejects_an_announcement_run_together(self):
+        self.assertEqual(
+            self.extract("<div>Welcoming Hiten Sonpal: RISE Robotics' New CEO</div>"), []
+        )
+
+    def test_rejects_department_headings(self):
+        self.assertEqual(
+            self.extract("<h3>Supply Chain</h3><p>Principal Engineer</p>"), []
+        )
+        self.assertEqual(
+            self.extract(
+                "<h3>Facilities Management</h3><p>Director of Facilities Management</p>"
+            ),
+            [],
+        )
+
+    def test_still_finds_real_people(self):
+        self.assertEqual(
+            self.extract("<h3>Marcus Webb</h3><p>Principal Engineer</p>"),
+            [("Marcus Webb", "Principal Engineer")],
+        )
+        self.assertEqual(
+            self.extract("<h3>Daniel O'Brien</h3><p>VP of Engineering</p>"),
+            [("Daniel O'Brien", "VP of Engineering")],
+        )
+
+    def test_keeps_a_genuine_middle_initial(self):
+        self.assertEqual(
+            self.extract("<h3>William J. Leuci</h3><p>President</p>"),
+            [("William J. Leuci", "President")],
+        )
+
+
+class DirectorySitesSkipped(unittest.TestCase):
+    """MassRobotics is a hub; its site lists other companies' founders, which
+    produced colin.angle@massrobotics.org for the founder of iRobot."""
+
+    def test_detects_a_membership_organisation(self):
+        is_directory, evidence = pipeline.companies_mod.looks_like_directory({
+            "name": "MassRobotics",
+            "domain": "massrobotics.org",
+            "site_text": "We are a nonprofit hub for the startup community. "
+                         "Our members include...",
+        })
+        self.assertTrue(is_directory)
+        self.assertIsNotNone(evidence)
+
+    def test_leaves_an_ordinary_company_alone(self):
+        is_directory, _ = pipeline.companies_mod.looks_like_directory({
+            "name": "Barrett Technology",
+            "domain": "barrett.com",
+            "site_text": "We build robotic arms and haptic devices for research.",
+        })
+        self.assertFalse(is_directory)
+
+    def test_one_weak_signal_is_not_enough(self):
+        is_directory, _ = pipeline.companies_mod.looks_like_directory({
+            "name": "Acme Robotics",
+            "domain": "acme.com",
+            "site_text": "We serve the robotics ecosystem with precision parts.",
+        })
+        self.assertFalse(is_directory)
+
+
+class CrawlBudget(unittest.TestCase):
+    """Runs were spending fetches on /careers/workplace-culture."""
+
+    def pages_from(self, hrefs):
+        from bs4 import BeautifulSoup
+        html = "<html><body>%s</body></html>" % "".join(
+            '<a href="%s">link</a>' % href for href in hrefs
+        )
+        return people.candidate_pages(
+            "https://acme.com/", BeautifulSoup(html, "html.parser"), 20
+        )
+
+    def test_skips_deep_pages_that_never_list_people(self):
+        followed = self.pages_from([
+            "/careers/workplace-culture",
+            "/who-we-are/giving-back",
+            "/careers/internship-program",
+            "/who-we-are/honoring-our-founder",
+        ])
+        self.assertEqual(followed, [])
+
+    def test_still_follows_the_pages_that_do(self):
+        followed = self.pages_from([
+            "/who-we-are/our-people", "/leadership", "/about", "/contact",
+        ])
+        for path in ("/who-we-are/our-people", "/leadership", "/about", "/contact"):
+            self.assertIn("https://acme.com" + path, followed)
+
+    def test_ranks_leadership_above_contact(self):
+        followed = self.pages_from(["/contact", "/leadership"])
+        self.assertEqual(followed[0], "https://acme.com/leadership")
+
+
+class ProviderCache(unittest.TestCase):
+    """Hunter free tier is 50/month -- a repeated search must not re-spend."""
+
+    def setUp(self):
+        store.init_db()
+
+    def test_round_trips_a_payload(self):
+        store.cache_put("hunter:domain:acme.com", {"pattern": "{f}{last}"})
+        self.assertEqual(store.cache_get("hunter:domain:acme.com"),
+                         {"pattern": "{f}{last}"})
+
+    def test_misses_on_an_unknown_key(self):
+        self.assertIsNone(store.cache_get("hunter:domain:never-looked-up.com"))
+
+    def test_expires_after_the_ttl(self):
+        store.cache_put("hunter:domain:stale.com", {"pattern": "{first}"})
+        self.assertIsNone(store.cache_get("hunter:domain:stale.com", ttl=-1))
+
+
 class OverpassQuery(unittest.TestCase):
     def test_includes_name_regex_clauses_for_recall(self):
         query = pipeline.companies_mod._overpass_query(

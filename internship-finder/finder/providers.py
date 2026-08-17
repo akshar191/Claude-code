@@ -6,7 +6,7 @@ try them and move on. API response shapes drift over time -- everything here
 reads defensively.
 """
 
-from . import config, text, web
+from . import config, store, text, web
 
 HUNTER_BASE = "https://api.hunter.io/v2"
 APOLLO_BASE = "https://api.apollo.io/api/v1"
@@ -29,6 +29,11 @@ def hunter_domain_search(domain, limit=10):
     if not config.HUNTER_API_KEY:
         return None, "not configured"
     limit = max(1, min(int(limit), 10))
+
+    cache_key = "hunter:domain:%s" % (domain or "").lower()
+    cached = store.cache_get(cache_key)
+    if cached is not None:
+        return cached, None
 
     payload, error = web.api(
         "GET",
@@ -53,16 +58,48 @@ def hunter_domain_search(domain, limit=10):
                 "source": "hunter",
             }
         )
-    return {
+    result = {
         "pattern": data.get("pattern"),
         "organization": data.get("organization"),
         "people": people,
+    }
+    store.cache_put(cache_key, result)
+    return result, None
+
+
+def hunter_account():
+    """Remaining free-tier allowance, so a run can report what it spent."""
+    if not config.HUNTER_API_KEY:
+        return None, "not configured"
+
+    payload, error = web.api(
+        "GET", HUNTER_BASE + "/account", params={"api_key": config.HUNTER_API_KEY}
+    )
+    if error:
+        return None, error
+
+    requests_info = ((payload or {}).get("data") or {}).get("requests") or {}
+    searches = requests_info.get("searches") or {}
+    verifications = requests_info.get("verifications") or {}
+    return {
+        "plan": ((payload or {}).get("data") or {}).get("plan_name"),
+        "searches_used": searches.get("used"),
+        "searches_available": searches.get("available"),
+        "verifications_used": verifications.get("used"),
+        "verifications_available": verifications.get("available"),
+        "reset_date": ((payload or {}).get("data") or {}).get("reset_date"),
     }, None
 
 
 def hunter_email_finder(domain, first_name, last_name):
     if not config.HUNTER_API_KEY:
         return None, "not configured"
+
+    cache_key = "hunter:finder:%s:%s:%s" % (
+        (domain or "").lower(), (first_name or "").lower(), (last_name or "").lower())
+    cached = store.cache_get(cache_key)
+    if cached is not None:
+        return cached, None
 
     payload, error = web.api(
         "GET",
@@ -80,7 +117,9 @@ def hunter_email_finder(domain, first_name, last_name):
     data = (payload or {}).get("data") or {}
     if not data.get("email"):
         return None, "no match"
-    return {"email": data["email"], "confidence": data.get("score"), "source": "hunter"}, None
+    found = {"email": data["email"], "confidence": data.get("score"), "source": "hunter"}
+    store.cache_put(cache_key, found)
+    return found, None
 
 
 def hunter_verify(email):

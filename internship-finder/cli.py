@@ -12,7 +12,7 @@ import argparse  # noqa: E402
 import csv  # noqa: E402
 import sys  # noqa: E402
 
-from finder import industries, pipeline, store  # noqa: E402
+from finder import industries, pipeline, providers, store  # noqa: E402
 
 
 def main(argv=None):
@@ -100,6 +100,19 @@ def main(argv=None):
         criteria, found, notes,
     )
     print("\nsaved as search #%d (%d companies)" % (search_id, len(found)), file=sys.stderr)
+
+    quota, quota_error = providers.hunter_account()
+    if quota:
+        used = quota.get("searches_used")
+        available = quota.get("searches_available")
+        if used is not None and available is not None:
+            print(
+                "hunter: %d/%d searches used, %d left (resets %s)"
+                % (used, available, available - used, quota.get("reset_date") or "?"),
+                file=sys.stderr,
+            )
+    elif quota_error and quota_error != "not configured":
+        print("hunter quota check failed: %s" % quota_error, file=sys.stderr)
 
     if args.csv and rows:
         with open(args.csv, "w", newline="", encoding="utf-8") as handle:

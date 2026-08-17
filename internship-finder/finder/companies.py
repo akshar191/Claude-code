@@ -14,7 +14,16 @@ import threading
 from . import industries, providers, text, web
 
 NOMINATIM = "https://nominatim.openstreetmap.org/search"
-OVERPASS = "https://overpass-api.de/api/interpreter"
+
+# overpass-api.de first: it is the reference instance and by far the most
+# reliable. One fallback only -- the .ru mirror times out constantly, and
+# retrying three mirrors at 25s each just makes a search feel broken.
+# Timeouts are (connect, read): fail fast on connect, allow the query to run.
+OVERPASS_MIRRORS = (
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+)
+OVERPASS_TIMEOUT = (5, 40)
 
 # Source ranking used when the same company shows up more than once.
 _SOURCE_RANK = {"apollo": 3, "google_places": 2, "openstreetmap": 1}
@@ -101,9 +110,15 @@ def from_openstreetmap(criteria, geo):
         geo["lon"],
         int(criteria.get("radius_m") or 25000),
     )
-    payload, error = web.api("POST", OVERPASS, data={"data": query}, timeout=105)
+    payload, error = None, None
+    for mirror in OVERPASS_MIRRORS:
+        payload, error = web.api(
+            "POST", mirror, data={"data": query}, timeout=OVERPASS_TIMEOUT
+        )
+        if not error:
+            break
     if error:
-        return [], "OpenStreetMap/Overpass: %s" % error
+        return [], "OpenStreetMap/Overpass unavailable (%s)" % error
 
     companies = []
     for element in (payload or {}).get("elements") or []:
@@ -205,6 +220,45 @@ def relevance(company, criteria):
     ).lower()
     hits = sum(1 for keyword in keywords if keyword in haystack)
     return min(1.0, hits / 3.0)
+
+
+# Phrases that mark a site as a directory rather than an employer. MassRobotics
+# is the case that motivated this: a nonprofit hub whose site lists the founders
+# of *other* companies, which produced colin.angle@massrobotics.org for the
+# person who founded iRobot.
+_DIRECTORY_PHRASES = (
+    "member companies", "our members", "membership", "accelerator", "incubator",
+    "startup community", "innovation hub", "industry association",
+    "trade association", "consortium", "coalition", "our startups",
+    "resident companies", "portfolio companies", "our portfolio", "ecosystem",
+    "nonprofit", "non-profit", "501(c)", "we connect", "founding sponsors",
+)
+
+_DIRECTORY_NAME_HINTS = (
+    "robotics cluster", "association", "council", "foundation", "institute",
+    "alliance", "network", "hub", "accelerator", "incubator", "chamber",
+)
+
+
+def looks_like_directory(company):
+    """True when a site lists other people's companies rather than employing anyone.
+
+    Returns (is_directory, evidence).
+    """
+    blob = " ".join(
+        str(company.get(field) or "")
+        for field in ("name", "description", "industry", "site_text")
+    ).lower()
+
+    hits = [phrase for phrase in _DIRECTORY_PHRASES if phrase in blob]
+    name_hit = any(hint in (company.get("name") or "").lower()
+                   for hint in _DIRECTORY_NAME_HINTS)
+    is_org = (company.get("domain") or "").endswith((".org", ".edu"))
+
+    # Two independent signals, or one plus a .org/.edu domain.
+    if len(hits) >= 2 or (hits and (is_org or name_hit)):
+        return True, hits[0]
+    return False, None
 
 
 def looks_large(site_text):

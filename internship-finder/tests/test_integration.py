@@ -30,7 +30,8 @@ PAGES = {
              <p>We build surgical robotics for small hospitals.</p>
              <nav>
                <a href="/leadership">Leadership</a>
-               <a href="/careers">Careers</a>
+               <a href="/contact">Contact</a>
+               <a href="/careers/workplace-culture">Life here</a>
                <a href="/private/secrets">Internal</a>
              </nav>
            </body></html>""",
@@ -45,7 +46,9 @@ PAGES = {
                 <a href="mailto:priya.raghavan@acmerobotics.test">this address</a>.</p>
            </section></body></html>""",
     ),
-    "/careers": ("text/html", "<html><body><p>Email jobs@acmerobotics.test</p></body></html>"),
+    "/contact": ("text/html", "<html><body><p>Email jobs@acmerobotics.test</p></body></html>"),
+    "/careers/workplace-culture": (
+        "text/html", "<html><body><p>Foosball and cold brew.</p></body></html>"),
     "/private/secrets": ("text/html", "<html><body>should never be fetched</body></html>"),
 }
 
@@ -100,6 +103,9 @@ class Pipeline(unittest.TestCase):
 
     def test_honours_robots_disallow(self):
         self.assertNotIn("/private/secrets", FixtureHandler.hits)
+
+    def test_does_not_spend_the_budget_on_culture_pages(self):
+        self.assertNotIn("/careers/workplace-culture", FixtureHandler.hits)
 
     def test_finds_the_senior_people(self):
         self.assertIn("Priya Raghavan", self.contacts)

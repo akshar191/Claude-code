@@ -57,6 +57,12 @@ CREATE TABLE IF NOT EXISTS contacts (
     UNIQUE (company_id, name)
 );
 
+CREATE TABLE IF NOT EXISTS provider_cache (
+    key        TEXT PRIMARY KEY,
+    payload    TEXT NOT NULL,
+    fetched_at REAL NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_companies_search ON companies(search_id);
 CREATE INDEX IF NOT EXISTS idx_contacts_company ON contacts(company_id);
 """
@@ -74,6 +80,43 @@ def connect():
 def init_db():
     with connect() as conn:
         conn.executescript(SCHEMA)
+
+
+CACHE_TTL_SECONDS = 30 * 24 * 3600
+
+
+def cache_get(key, ttl=CACHE_TTL_SECONDS):
+    """Cached provider response, or None if missing or stale.
+
+    Hunter's free tier is 50 lookups a month, so re-running the same search
+    must not re-spend credits on domains we already asked about.
+    """
+    try:
+        with connect() as conn:
+            row = conn.execute(
+                "SELECT payload, fetched_at FROM provider_cache WHERE key = ?", (key,)
+            ).fetchone()
+    except sqlite3.Error:
+        return None
+
+    if not row or (time.time() - row["fetched_at"]) > ttl:
+        return None
+    try:
+        return json.loads(row["payload"])
+    except ValueError:
+        return None
+
+
+def cache_put(key, payload):
+    try:
+        with connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO provider_cache (key, payload, fetched_at) "
+                "VALUES (?,?,?)",
+                (key, json.dumps(payload), time.time()),
+            )
+    except (sqlite3.Error, TypeError, ValueError):
+        pass  # a cache miss is never worth failing a search over
 
 
 def save_results(label, criteria, companies, notes=None):

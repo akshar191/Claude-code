@@ -84,15 +84,23 @@ def main(argv=None):
                 int((contact.get("email_confidence") or 0) * 100),
             ))
             rows.append({
-                "company": company["name"],
-                "domain": company.get("domain"),
                 "name": contact["name"],
                 "title": contact.get("title"),
+                "company": company["name"],
                 "email": contact.get("email"),
                 "confidence": contact.get("email_confidence"),
-                "status": contact.get("email_status"),
-                "basis": contact.get("email_basis"),
+                "source": contact.get("source"),
+                "company_url": company.get("website") or (
+                    "https://%s" % company["domain"] if company.get("domain") else ""),
+                "email_status": contact.get("email_status"),
+                "how_we_got_it": contact.get("email_basis"),
+                "seniority": contact.get("seniority"),
                 "linkedin": contact.get("linkedin_url"),
+                "company_location": company.get("address"),
+                # Blank columns to fill in as you work the list.
+                "contacted_on": "",
+                "replied": "",
+                "notes": "",
             })
 
     search_id = store.save_results(

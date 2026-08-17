@@ -6,6 +6,7 @@
 import os
 import sys
 import tempfile
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -373,6 +374,85 @@ class ProviderCache(unittest.TestCase):
     def test_expires_after_the_ttl(self):
         store.cache_put("hunter:domain:stale.com", {"pattern": "{first}"})
         self.assertIsNone(store.cache_get("hunter:domain:stale.com", ttl=-1))
+
+
+class HunterCacheStopsSpending(unittest.TestCase):
+    """A repeated domain must cost zero API calls -- Hunter's free tier is 50."""
+
+    def setUp(self):
+        from finder import providers, web
+
+        store.init_db()
+        self.providers = providers
+        self.web = web
+        self.original_api = web.api
+        self.original_key = config.HUNTER_API_KEY
+        config.HUNTER_API_KEY = "test-key"
+        self.calls = []
+
+        def counting_api(method, url, **kwargs):
+            self.calls.append(url)
+            return {"data": {"pattern": "{f}{last}", "organization": "Acme",
+                             "emails": []}}, None
+
+        web.api = counting_api
+        providers.web.api = counting_api
+
+    def tearDown(self):
+        self.web.api = self.original_api
+        self.providers.web.api = self.original_api
+        config.HUNTER_API_KEY = self.original_key
+
+    def test_second_lookup_of_a_domain_makes_no_api_call(self):
+        domain = "cache-test-%d.com" % time.time()
+        first, error = self.providers.hunter_domain_search(domain)
+        self.assertIsNone(error)
+        self.assertEqual(len(self.calls), 1, "first lookup should hit the API")
+
+        second, error = self.providers.hunter_domain_search(domain)
+        self.assertIsNone(error)
+        self.assertEqual(len(self.calls), 1,
+                         "cached domain must not trigger a second API call")
+        self.assertEqual(second["pattern"], first["pattern"])
+
+    def test_a_different_domain_still_costs_a_call(self):
+        self.providers.hunter_domain_search("cache-a-%d.com" % time.time())
+        self.providers.hunter_domain_search("cache-b-%d.com" % time.time())
+        self.assertEqual(len(self.calls), 2)
+
+    def test_per_person_lookups_are_cached_too(self):
+        domain = "finder-cache-%d.com" % time.time()
+
+        def finder_api(method, url, **kwargs):
+            self.calls.append(url)
+            return {"data": {"email": "mflansbury@%s" % domain, "score": 90}}, None
+
+        self.web.api = finder_api
+        self.providers.web.api = finder_api
+
+        self.providers.hunter_email_finder(domain, "Dinne", "Flansbury")
+        self.providers.hunter_email_finder(domain, "Dinne", "Flansbury")
+        self.assertEqual(len(self.calls), 1,
+                         "cached person lookup must not trigger a second API call")
+
+
+class ProviderNamesAreValidated(unittest.TestCase):
+    """Hunter returned "M Dinne Flansbury" and it went straight to output --
+    provider names never passed through the parser's validation."""
+
+    def test_bare_initial_is_punctuated(self):
+        self.assertEqual(text.clean_person_name("M Dinne Flansbury"),
+                         "M. Dinne Flansbury")
+
+    def test_ordinary_names_are_untouched(self):
+        self.assertEqual(text.clean_person_name("Ryan Jones"), "Ryan Jones")
+        self.assertEqual(text.clean_person_name("Daniel O'Brien"), "Daniel O'Brien")
+
+    def test_rejects_unusable_names(self):
+        self.assertIsNone(text.clean_person_name("Flansbury"))
+        self.assertIsNone(text.clean_person_name("M D"))
+        self.assertIsNone(text.clean_person_name(""))
+        self.assertIsNone(text.clean_person_name("Welcoming Hiten: New CEO"))
 
 
 class OverpassQuery(unittest.TestCase):

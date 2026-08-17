@@ -376,9 +376,11 @@ def from_providers(company, criteria):
         for person in hunter["people"]:
             if person.get("email"):
                 harvested.append(person["email"].lower())
-            name = " ".join(
+            # Provider names are not parsed by us and so were never validated:
+            # Hunter returned "M Dinne Flansbury" straight through.
+            name = text.clean_person_name(" ".join(
                 part for part in [person.get("first_name"), person.get("last_name")] if part
-            )
+            ))
             if not name:
                 continue
             rank, _ = industries.rank_title(person.get("title") or "")

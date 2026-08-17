@@ -110,6 +110,34 @@ def split_name(full_name):
     return first, last
 
 
+def clean_person_name(full_name):
+    """Tidy a name that came from a provider rather than from HTML we parsed.
+
+    Hunter hands back whatever its source recorded, including "M Dinne
+    Flansbury" -- a real person whose first name is an unpunctuated initial.
+    Rendering that as "M. Dinne Flansbury" reads as a name instead of a bug.
+    Returns None when there is no usable name at all.
+    """
+    tokens = [t for t in re.split(r"\s+", (full_name or "").strip()) if t]
+    if not tokens:
+        return None
+
+    cleaned = []
+    for token in tokens:
+        stripped = token.strip(".,")
+        if len(stripped) == 1 and stripped.isalpha():
+            cleaned.append(stripped.upper() + ".")  # bare initial
+        else:
+            cleaned.append(token)
+
+    # Needs at least one real word, and at least two tokens overall.
+    if len(cleaned) < 2 or not any(len(t.strip(".,")) > 1 for t in cleaned):
+        return None
+    if ":" in full_name:
+        return None
+    return titlecase_name(" ".join(cleaned))
+
+
 def titlecase_name(full_name):
     """Tidy casing without flattening names that are already mixed case."""
     fixed = []

@@ -112,6 +112,24 @@ def draft(contact, profile, style="advice"):
     return {"subject": subject, "body": "\n".join(body_lines)}
 
 
+class ResearchFailed(Exception):
+    """Raised rather than writing an email with no company in it.
+
+    A generic email dressed up as a personal one is worse than no email: the
+    contact is spent either way, and the generic version guarantees no reply.
+    """
+
+    def __init__(self, reason, diagnostics=None):
+        super().__init__(reason)
+        self.reason = reason
+        self.diagnostics = diagnostics or {}
+
+
+# Rank 4 and up (founder, CEO, VP, partner) can say yes to an intern. Below
+# that, asking for a job is asking the wrong person -- so ask about the work.
+DIRECT_ASK_RANK = 4
+
+
 def internship_draft(contact, company, research, profile=None):
     """A cold email for a specific internship, built on what the site actually says.
 
@@ -120,10 +138,20 @@ def internship_draft(contact, company, research, profile=None):
     up -- it is the one claim in the email that came from a machine reading a
     web page, and a wrong one is worse than no line at all.
     """
-    profile = dict(config.APPLICANT, **(profile or {}))
+    profile = dict(config.APPLICANT, **{
+        k: v for k, v in (profile or {}).items() if v not in (None, "")
+    })
     first = _first_name(contact)
     company_name = company.get("name") or "your team"
     details = (research or {}).get("details") or []
+
+    # No specific detail means no personalised email. Refuse loudly.
+    if not details:
+        raise ResearchFailed(
+            (research or {}).get("error")
+            or "found nothing specific to say about this company",
+            (research or {}).get("diagnostics"),
+        )
 
     student = profile.get("name") or "[your name]"
     year = profile.get("year") or "high school junior"
@@ -133,65 +161,62 @@ def internship_draft(contact, company, research, profile=None):
     target = profile.get("target") or "summer 2027"
 
     # The verifiable hook, quoted rather than paraphrased.
-    why = None
-    if details:
-        quoted = details[0]["text"].rstrip(".")
-        if len(quoted) > 180:
-            quoted = quoted[:177].rsplit(" ", 1)[0] + "…"
-        why = 'Your site says: "%s"' % quoted
+    quoted = details[0]["text"].rstrip(".")
+    if len(quoted) > 180:
+        quoted = quoted[:177].rsplit(" ", 1)[0] + "…"
+    why = 'Your site says: "%s"' % quoted
 
-    subject = "%s internship — %s, %s" % (
-        target.split()[0].capitalize() if target else "Summer",
-        student,
-        year.split()[-1] if year else "student",
-    )
+    rank = contact.get("rank") or 0
+    direct_ask = rank >= DIRECT_ASK_RANK
+
+    if direct_ask:
+        subject = "%s intern? — %s, %s" % (
+            target.capitalize() if target else "Summer", student, year,
+        )
+    else:
+        subject = "Question about your work at %s" % company_name
 
     lines = ["Hi %s," % first, ""]
+    lines += ["I'm %s, a %s%s." % (student, year, " in %s" % town if town else ""), ""]
 
-    intro = "I'm %s, a %s%s." % (
-        student, year, " in %s" % town if town else ""
-    )
-    lines += [intro, ""]
+    # The quoted claim, attributed rather than paraphrased.
+    lines += [
+        "%s — that's the part I keep coming back to, and it's why I'm writing to "
+        "you specifically rather than sending this everywhere." % why,
+        "",
+    ]
 
-    if why:
-        lines += [
-            "I've been reading about what %s builds. %s — that overlaps with the "
-            "hands-on hardware work I've been doing, which is why I'm writing to "
-            "you rather than sending this everywhere." % (company_name, why),
-            "",
-        ]
-    else:
-        lines += [
-            "I came across %s while looking for small hardware teams near me, and "
-            "wanted to reach out directly rather than through a job board."
-            % company_name,
-            "",
-        ]
-
-    # Both of these are noun phrases in config, so they need the same sentence
-    # shape -- "I started and run founder of a detailing business" is not English.
+    # These come from config and are inserted exactly as written: no rewriting,
+    # no softening, no re-conjugating. Each already reads as "I'm <phrase>".
     background = []
     if work:
-        background.append("I'm currently %s." % work)
+        background.append("I'm %s." % work)
     if venture:
-        background.append("I'm also the %s." % venture if not venture.lower().startswith(
-            ("founder", "owner", "co-founder")) else "I'm also %s." % venture)
+        background.append("I'm also %s." % venture)
     if background:
         background.append(
-            "Between the two I'm used to precise assembly work, keeping my own "
-            "schedule, and being the one responsible when something is wrong."
+            "Both mean careful hands-on work and being the one accountable when "
+            "something is off."
         )
         lines += [" ".join(background), ""]
 
-    lines += [
-        "Would you be open to taking on an intern for %s? I'd be glad to send a "
-        "resume, or start with something small and unpaid so you can see the work "
-        "before committing to anything. If it's not the right time, I'd still "
-        "appreciate any pointer toward someone worth talking to." % target,
-        "",
-        "Thanks for reading,",
-        student,
-    ]
+    if direct_ask:
+        lines += [
+            "Would you be open to taking on an intern for %s? Happy to send a "
+            "resume. If it's not the right time, a pointer toward someone else "
+            "worth talking to would be just as useful." % target,
+        ]
+    else:
+        # Not their call to make, so don't put them on the spot -- ask about the
+        # work itself, which is the thing they can actually answer.
+        lines += [
+            "I'm not asking you for a job — I know that's not your call. I'd just "
+            "like to hear how you got into this kind of work, and what you'd "
+            "learn first if you were starting now. Fifteen minutes whenever suits "
+            "you, or a reply to this email is just as good.",
+        ]
+
+    lines += ["", "Thanks for reading,", student]
     if profile.get("phone"):
         lines.append(profile["phone"])
 
@@ -201,7 +226,9 @@ def internship_draft(contact, company, research, profile=None):
         "why": why,
         "details": details,
         "sources": (research or {}).get("pages") or [],
-        "unverified": bool(why),
+        "unverified": True,
+        "ask": "internship" if direct_ask else "about their work",
+        "seniority_rank": rank,
     }
 
 

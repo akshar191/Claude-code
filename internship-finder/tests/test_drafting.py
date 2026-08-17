@@ -103,63 +103,158 @@ class Research(unittest.TestCase):
         self.assertLessEqual(len(self.found["details"]), 2)
 
 
+class MarketingPageExtraction(unittest.TestCase):
+    """A real Dexai-style page is headings and divs, not prose with full stops.
+
+    Flattening it produced one run-on blob that the length cap rejected, so
+    research returned nothing and the draft silently went generic.
+    """
+
+    def blocks(self, html):
+        from bs4 import BeautifulSoup
+        return research._sentences(BeautifulSoup(html, "html.parser"))
+
+    def test_reads_divs_as_separate_claims(self):
+        html = """<html><body><div class="hero">
+                    <h1>Alfred</h1><h2>The robotic sous-chef</h2>
+                    <div>Alfred is a collaborative robot arm that preps food in
+                         commercial kitchens</div>
+                  </div></body></html>"""
+        blocks = self.blocks(html)
+        self.assertIn(
+            "Alfred is a collaborative robot arm that preps food in commercial kitchens",
+            blocks,
+        )
+
+    def test_does_not_produce_one_run_on_blob(self):
+        html = """<html><body>
+                    <div><h1>Alfred</h1></div>
+                    <div>Alfred is a collaborative robot arm</div>
+                    <div>Works with your existing utensils</div>
+                  </body></html>"""
+        for block in self.blocks(html):
+            self.assertLess(len(block), 120, "block is a run-on: %r" % block)
+
+    def test_scores_a_product_claim_above_zero(self):
+        score, why = research._score(
+            "Alfred is a collaborative robot arm that preps food in commercial kitchens")
+        self.assertGreater(score, 0, why)
+
+    def test_explains_why_it_rejected_something(self):
+        self.assertEqual(research._score("Learn more")[1], "too short")
+        self.assertEqual(research._score("We are a world-class team of people")[1],
+                         "marketing filler")
+        self.assertEqual(research._score("Our mission is to change everything")[1],
+                         "no concrete product noun")
+
+
 class InternshipDraft(unittest.TestCase):
     def setUp(self):
-        self.contact = {"name": "Bill Townsend", "first_name": "Bill",
-                        "email": "bill@barrett.test"}
-        self.company = {"name": "Barrett Technology", "domain": "barrett.test"}
+        self.company = {"name": "Dexai Robotics", "domain": "dexai.test"}
         self.research = {
-            "details": [{"text": "We build robotic arms and haptic devices used in "
-                                 "rehabilitation research.",
-                         "url": "https://barrett.test/products"}],
-            "pages": ["https://barrett.test"],
+            "details": [{"text": "Alfred is a collaborative robot arm that preps "
+                                 "food in commercial kitchens.",
+                         "url": "https://dexai.test/"}],
+            "pages": ["https://dexai.test/"],
         }
         self.profile = {"name": "Akshar Pathak"}
+        self.ceo = {"name": "Dave Johnson", "first_name": "Dave", "rank": 5}
+        self.engineer = {"name": "Sam Lee", "first_name": "Sam", "rank": 2}
 
-    def draft(self, research_data=None):
+    def draft(self, contact=None, research_data=None):
         return outreach.internship_draft(
-            self.contact, self.company, research_data if research_data is not None
-            else self.research, self.profile)
+            contact or self.ceo, self.company,
+            self.research if research_data is None else research_data, self.profile)
 
-    def test_names_the_person_and_company(self):
-        drafted = self.draft()
-        self.assertIn("Hi Bill,", drafted["body"])
-        self.assertIn("Barrett Technology", drafted["body"])
+    # --- the point of the whole feature ---------------------------------
 
-    def test_quotes_a_specific_detail(self):
-        self.assertIn("robotic arms", self.draft()["body"])
-
-    def test_asks_for_the_configured_term(self):
-        self.assertIn("summer 2027", self.draft()["body"])
-
-    def test_includes_the_background_from_config(self):
+    def test_contains_a_company_specific_line(self):
         body = self.draft()["body"]
-        self.assertIn("Silverside Detectors", body)
-        self.assertIn("detailing", body)
+        self.assertIn("collaborative robot arm", body)
 
-    def test_background_reads_as_english(self):
-        # An earlier version produced "I started and run founder of a business".
+    def test_swapping_the_company_changes_the_email(self):
+        """The regression that started this: the draft was identical for any company."""
+        first = self.draft()["body"]
+        other = outreach.internship_draft(
+            self.ceo, {"name": "Barrett Technology", "domain": "barrett.test"},
+            {"details": [{"text": "We build robotic arms for rehabilitation research.",
+                          "url": "https://barrett.test/"}], "pages": []},
+            self.profile)["body"]
+        self.assertNotEqual(first, other)
+        self.assertNotIn("collaborative robot arm", other)
+
+    def test_refuses_when_research_found_nothing(self):
+        with self.assertRaises(outreach.ResearchFailed) as caught:
+            self.draft(research_data={"details": [], "error": "site is JS-rendered"})
+        self.assertIn("JS-rendered", caught.exception.reason)
+
+    def test_refusal_carries_diagnostics(self):
+        with self.assertRaises(outreach.ResearchFailed) as caught:
+            self.draft(research_data={"details": [], "error": "nothing",
+                                      "diagnostics": {"considered": 42}})
+        self.assertEqual(caught.exception.diagnostics["considered"], 42)
+
+    # --- applicant facts, verbatim --------------------------------------
+
+    def test_uses_the_configured_wording_exactly(self):
         body = self.draft()["body"]
-        self.assertNotIn("run founder", body)
-        self.assertNotIn("the founder of a mobile detailing business.", body.replace(
-            "I'm also founder of a mobile detailing business.", ""))
+        self.assertIn(config.APPLICANT["work"], body)
+        self.assertIn(config.APPLICANT["venture"], body)
+
+    def test_does_not_call_the_intern_a_contractor(self):
+        body = self.draft()["body"].lower()
+        self.assertNotIn("contractor", body)
+        self.assertIn("intern at silverside", body)
+        self.assertIn("paid assembly work", body)
+
+    # --- no hedging ------------------------------------------------------
+
+    def test_never_offers_to_work_unpaid(self):
+        for contact in (self.ceo, self.engineer):
+            body = self.draft(contact)["body"].lower()
+            for phrase in ("unpaid", "for free", "no pay", "without pay",
+                           "free of charge", "not expecting to be paid"):
+                self.assertNotIn(phrase, body, "hedging phrase %r in draft" % phrase)
+
+    def test_no_self_deprecating_hedges(self):
+        for contact in (self.ceo, self.engineer):
+            body = self.draft(contact)["body"].lower()
+            for phrase in ("something small", "just a student", "i know i'm only",
+                           "sorry to bother", "i hate to ask", "even if it's just"):
+                self.assertNotIn(phrase, body, "hedge %r in draft" % phrase)
+
+    # --- the ask adapts to seniority -------------------------------------
+
+    def test_founder_gets_the_direct_internship_ask(self):
+        drafted = self.draft(self.ceo)
+        self.assertEqual(drafted["ask"], "internship")
+        self.assertIn("taking on an intern", drafted["body"])
+        self.assertIn("summer 2027", drafted["body"])
+
+    def test_engineer_gets_no_ask(self):
+        drafted = self.draft(self.engineer)
+        self.assertEqual(drafted["ask"], "about their work")
+        self.assertNotIn("taking on an intern", drafted["body"])
+        self.assertIn("not asking you for a job", drafted["body"])
+
+    def test_the_two_drafts_are_actually_different(self):
+        self.assertNotEqual(self.draft(self.ceo)["body"],
+                            self.draft(self.engineer)["body"])
+        self.assertNotEqual(self.draft(self.ceo)["subject"],
+                            self.draft(self.engineer)["subject"])
+
+    def test_director_is_below_the_direct_ask_line(self):
+        director = {"name": "Sofia Marino", "first_name": "Sofia", "rank": 3}
+        self.assertEqual(self.draft(director)["ask"], "about their work")
+
+    def test_vp_is_at_or_above_it(self):
+        vp = {"name": "Daniel O'Brien", "first_name": "Daniel", "rank": 4}
+        self.assertEqual(self.draft(vp)["ask"], "internship")
 
     def test_flags_the_line_that_needs_checking(self):
         drafted = self.draft()
         self.assertTrue(drafted["unverified"])
         self.assertIn("Your site says", drafted["why"])
-
-    def test_still_drafts_when_research_found_nothing(self):
-        drafted = self.draft({"details": [], "pages": []})
-        self.assertIsNone(drafted["why"])
-        self.assertFalse(drafted["unverified"])
-        self.assertIn("Hi Bill,", drafted["body"])
-        self.assertIn("summer 2027", drafted["body"])
-
-    def test_subject_is_specific(self):
-        subject = self.draft()["subject"]
-        self.assertIn("Akshar Pathak", subject)
-        self.assertIn("internship", subject.lower())
 
 
 class GmailIntegration(unittest.TestCase):

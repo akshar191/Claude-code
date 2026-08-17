@@ -1,4 +1,4 @@
-"""Web UI + JSON API for the company/contact finder.
+"""ColdStart -- web UI + JSON API for the company/contact finder.
 
 Local:
     pip install -r requirements.txt
@@ -372,13 +372,36 @@ def research_and_draft():
 
     try:
         found = research.gather(company)
-    except Exception as exc:  # research is best-effort; still draft without it
-        log.warning("research failed for %s: %s", company.get("domain"), exc)
-        found = {"details": [], "pages": [], "error": str(exc)}
+    except Exception as exc:
+        log.warning("research crashed for %s: %s", company.get("domain"), exc)
+        found = {"details": [], "pages": [], "error": str(exc), "diagnostics": {}}
 
-    drafted = outreach.internship_draft(contact, company, found, payload.get("profile"))
-    drafted["research_error"] = found.get("error")
+    log.info(
+        "research %s: kept=%d considered=%d pages=%s error=%s",
+        company.get("domain"),
+        len(found.get("details") or []),
+        (found.get("diagnostics") or {}).get("considered", 0),
+        found.get("pages"),
+        found.get("error"),
+    )
+
+    try:
+        drafted = outreach.internship_draft(
+            contact, company, found, payload.get("profile")
+        )
+    except outreach.ResearchFailed as failure:
+        # Refuse rather than hand back a generic email dressed as a personal one.
+        return jsonify({
+            "error": "Could not find anything specific to say about %s."
+                     % (company.get("name") or "this company"),
+            "reason": failure.reason,
+            "diagnostics": found.get("diagnostics") or {},
+            "pages_read": found.get("pages") or [],
+            "research_failed": True,
+        }), 422
+
     drafted["mailto"] = outreach.mailto_link(contact, drafted)
+    drafted["diagnostics"] = found.get("diagnostics") or {}
     return jsonify(drafted)
 
 
@@ -558,7 +581,7 @@ def export_csv():
     return Response(
         buffer.getvalue(),
         mimetype="text/csv",
-        headers={"Content-Disposition": "attachment; filename=contacts.csv"},
+        headers={"Content-Disposition": "attachment; filename=coldstart-contacts.csv"},
     )
 
 
@@ -585,7 +608,7 @@ if __name__ == "__main__":
     import argparse
     import os
 
-    parser = argparse.ArgumentParser(description="Run the Internship Finder web UI.")
+    parser = argparse.ArgumentParser(description="Run the ColdStart web UI.")
     parser.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", 5001)))
     parser.add_argument("--debug", action="store_true")
@@ -597,5 +620,5 @@ if __name__ == "__main__":
     port = free_port(args.host, args.port)
     if port != args.port:
         print("Port %d was busy (AirPlay Receiver, if you're on a Mac)." % args.port)
-    print("\n  Internship Finder -> http://%s:%d\n" % (args.host, port))
+    print("\n  ColdStart -> http://%s:%d\n" % (args.host, port))
     app.run(host=args.host, port=port, debug=args.debug)

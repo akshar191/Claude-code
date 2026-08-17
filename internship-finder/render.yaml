@@ -1,4 +1,4 @@
-# Render blueprint. Point Render at this file and it creates the service with
+# ColdStart -- Render blueprint. Point Render at this file and it creates the service with
 # the right build/start commands; you still paste the secret values yourself.
 #
 # One worker and threads, deliberately: searches run in background threads

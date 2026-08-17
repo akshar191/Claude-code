@@ -81,16 +81,20 @@ GOOGLE_OAUTH_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "").st
 GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.compose"
 
 # --- Who you are (used in drafts) -------------------------------------------
+# These strings go into emails VERBATIM. The template inserts them as written
+# and never rewrites, softens or re-conjugates them, so each one has to read
+# correctly straight after "I'm " / "I'm also ".
 APPLICANT = {
     "name": os.environ.get("APPLICANT_NAME", "").strip(),
     "year": os.environ.get("APPLICANT_YEAR", "high school junior").strip(),
     "town": os.environ.get("APPLICANT_TOWN", "Ashland, MA").strip(),
     "work": os.environ.get(
         "APPLICANT_WORK",
-        "a contractor at Silverside Detectors, assembling lithium-6 neutron detectors",
+        "an intern at Silverside Detectors doing paid assembly work on "
+        "lithium-6 neutron detectors",
     ).strip(),
     "venture": os.environ.get(
-        "APPLICANT_VENTURE", "founder of a mobile detailing business"
+        "APPLICANT_VENTURE", "the founder of a mobile detailing business"
     ).strip(),
     "target": os.environ.get("APPLICANT_TARGET", "summer 2027").strip(),
 }

@@ -9,11 +9,14 @@ specific claim, and hand those to the drafter. Every detail keeps the URL it
 came from so the claim can be checked before sending.
 """
 
+import logging
 import re
 
 from bs4 import BeautifulSoup
 
 from . import web
+
+log = logging.getLogger("internship-finder.research")
 
 # Pages that describe what a company makes, as opposed to who works there.
 PRODUCT_HINTS = [
@@ -44,34 +47,77 @@ _FLUFF = re.compile(
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 
 
+# Elements that hold one idea. Reading text per block rather than flattening the
+# whole page is the difference between "Alfred is a collaborative robot arm that
+# preps food in commercial kitchens" and one 300-character run-on of every
+# heading and button on the page.
+_BLOCK_TAGS = ["p", "li", "h1", "h2", "h3", "h4", "blockquote", "figcaption",
+               "td", "dd", "span", "div"]
+
+
 def _sentences(soup):
-    """Readable prose from a page.
+    """Candidate sentences from a page, read block by block.
 
     Destructive: it strips nav/footer out of the soup it is given. Collect any
     links you need BEFORE calling this -- product links usually live in the nav.
+
+    Marketing pages are headings and divs with almost no full stops, so
+    flattening the document produces a single unusable blob. Instead take each
+    block's own text; a block without sentence punctuation counts as one
+    sentence in its own right.
     """
-    for tag in soup(["script", "style", "noscript", "nav", "footer", "form"]):
+    for tag in soup(["script", "style", "noscript", "nav", "footer", "form",
+                     "header", "aside"]):
         tag.decompose()
-    blob = " ".join(soup.get_text(" ", strip=True).split())
-    return [s.strip() for s in _SENTENCE_RE.split(blob) if s.strip()]
+
+    found = []
+    seen = set()
+    for element in soup.find_all(_BLOCK_TAGS):
+        # Only leaf-ish blocks: if a child holds the same text, let the child
+        # supply it rather than counting the wrapper too.
+        if element.find(_BLOCK_TAGS):
+            continue
+        text = " ".join(element.get_text(" ", strip=True).split())
+        if not text:
+            continue
+        for sentence in _SENTENCE_RE.split(text):
+            sentence = sentence.strip()
+            key = sentence.lower()
+            if sentence and key not in seen:
+                seen.add(key)
+                found.append(sentence)
+
+    # Fall back to the flattened document if the markup gave us nothing.
+    if not found:
+        blob = " ".join(soup.get_text(" ", strip=True).split())
+        found = [s.strip() for s in _SENTENCE_RE.split(blob) if s.strip()]
+    return found
 
 
 def _score(sentence):
-    """How quotable is this sentence? 0 means don't."""
+    """How quotable is this sentence? Returns (score, reason). 0 means don't.
+
+    The reason is kept so a failed research run can say what it rejected and
+    why, instead of silently producing a generic email.
+    """
     words = len(sentence.split())
-    if not (6 <= words <= 45) or len(sentence) > 320:
-        return 0
+    if words < 4:
+        return 0, "too short"
+    if words > 45 or len(sentence) > 300:
+        return 0, "too long (probably a run-on of several page elements)"
     if _FLUFF.search(sentence):
-        return 0
+        return 0, "marketing filler"
     if not _CONCRETE.search(sentence):
-        return 0
+        return 0, "no concrete product noun"
 
     score = len(_CONCRETE.findall(sentence))
     if re.match(r"^(we|our)\b", sentence, re.IGNORECASE):
         score += 2  # first-person claims are the company describing itself
+    if re.match(r"^[A-Z][a-zA-Z0-9-]* (is|are) an? ", sentence):
+        score += 2  # "Alfred is a collaborative robot arm ..."
     if re.search(r"\d", sentence):
         score += 1  # numbers are specific
-    return score
+    return score, "kept"
 
 
 def _candidate_pages(base_url, soup, limit):
@@ -104,26 +150,41 @@ def _candidate_pages(base_url, soup, limit):
 
 
 def gather(company, max_pages=4, max_details=2):
-    """Return {details: [{text, url}], summary, pages, error}.
+    """Return {details, summary, pages, error, diagnostics}.
 
-    Cheap and best-effort: a company we cannot read still gets an email, just a
-    less specific one.
+    `diagnostics` records what was fetched and what each candidate scored, so a
+    run that finds nothing can explain itself rather than quietly handing back
+    an email with no company in it.
     """
-    result = {"details": [], "summary": None, "pages": [], "error": None}
+    result = {
+        "details": [],
+        "summary": None,
+        "pages": [],
+        "error": None,
+        "diagnostics": {"fetched": [], "rejected": [], "considered": 0, "kept": 0},
+    }
+    diagnostics = result["diagnostics"]
     domain = company.get("domain")
     if not domain:
-        result["error"] = "no website"
+        result["error"] = "no website on file for this company"
         return result
 
     home = None
+    tried = []
     for url in [company.get("website"), "https://%s" % domain, "http://%s" % domain]:
         if not url:
             continue
+        tried.append(url)
         home = web.get(url)
         if home is not None:
             break
+
     if home is None:
-        result["error"] = "site unreachable or disallowed by robots.txt"
+        result["error"] = (
+            "could not fetch the site (tried %s) -- unreachable, blocked, or "
+            "disallowed by robots.txt" % ", ".join(tried)
+        )
+        log.info("research %s: fetch failed for %s", domain, tried)
         return result
 
     soup = BeautifulSoup(home.text, "html.parser")
@@ -140,22 +201,34 @@ def gather(company, max_pages=4, max_details=2):
     follow = _candidate_pages(home.url, soup, max(0, max_pages - 1))
 
     scored = []
-    for sentence in _sentences(soup):
-        weight = _score(sentence)
-        if weight:
-            scored.append((weight, sentence, home.url))
+
+    def read(page_soup, url, raw_length):
+        sentences = _sentences(page_soup)
+        diagnostics["fetched"].append({
+            "url": url, "html_bytes": raw_length, "blocks": len(sentences),
+        })
+        diagnostics["considered"] += len(sentences)
+        for sentence in sentences:
+            weight, reason = _score(sentence)
+            if weight:
+                scored.append((weight, sentence, url))
+            elif len(diagnostics["rejected"]) < 12:
+                diagnostics["rejected"].append({
+                    "text": sentence[:120], "why": reason,
+                })
+        log.info("research %s: %s -> %d blocks, %d candidates",
+                 domain, url, len(sentences), len(scored))
+
+    read(soup, home.url, len(home.text))
     result["pages"].append(home.url)
 
     for url in follow:
         page = web.get(url)
         if page is None:
+            diagnostics["fetched"].append({"url": url, "error": "not fetched"})
             continue
         result["pages"].append(page.url)
-        page_soup = BeautifulSoup(page.text, "html.parser")
-        for sentence in _sentences(page_soup):
-            weight = _score(sentence)
-            if weight:
-                scored.append((weight, sentence, page.url))
+        read(BeautifulSoup(page.text, "html.parser"), page.url, len(page.text))
 
     scored.sort(key=lambda item: -item[0])
     seen = set()
@@ -170,4 +243,23 @@ def gather(company, max_pages=4, max_details=2):
 
     if not result["details"] and result["summary"]:
         result["details"].append({"text": result["summary"], "url": home.url})
+
+    diagnostics["kept"] = len(result["details"])
+    if not result["details"]:
+        total_text = sum(f.get("blocks", 0) for f in diagnostics["fetched"])
+        if total_text <= 2:
+            # A React/Vue shell serves an empty <div id="root"> to a plain
+            # fetch; there is no copy to read without running JavaScript.
+            result["error"] = (
+                "the site returned almost no readable text -- it is probably "
+                "rendered by JavaScript, which this crawler does not execute"
+            )
+        else:
+            result["error"] = (
+                "read %d blocks across %d page(s) but none made a specific, "
+                "quotable claim about what they build"
+                % (diagnostics["considered"], len(result["pages"]))
+            )
+        log.info("research %s: no usable detail -- %s", domain, result["error"])
+
     return result

@@ -1,4 +1,4 @@
-"""Command-line version, for when you want to pipe results somewhere.
+"""ColdStart -- command-line version, for when you want to pipe results somewhere.
 
     python cli.py --industry mechanical_engineering --location "Boston, MA" \
                   --max-employees 100 --companies 10 --csv out.csv
@@ -16,7 +16,7 @@ from finder import industries, pipeline, providers, store  # noqa: E402
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__,
+    parser = argparse.ArgumentParser(prog="coldstart", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--industry", default="mechanical_engineering",
                         choices=sorted(industries.INDUSTRIES))

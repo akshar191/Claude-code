@@ -1,12 +1,16 @@
-# Internship Finder
+# ColdStart
+
+**Find the people behind the companies.**
 
 Finds small companies in a given field and city, works out who's senior enough
 there to answer a cold email, and finds their email address — labelling every
-address with how confident it is and *why*.
+address with how confident it is and *why*. Then drafts the email, using
+something specific the company says about itself.
 
-Built for the student internship hunt, where the useful targets are 10–50 person
-companies whose founder reads their own inbox, and the hard part is getting from
-"this company looks interesting" to "here is a person and an address".
+It does not find job listings. It finds companies, and the humans at them you
+could actually reach. The useful targets are 10–50 person companies whose
+founder reads their own inbox, and the hard part is getting from "this company
+looks interesting" to "here is a person and an address".
 
 ```bash
 python app.py     # web UI
@@ -56,6 +60,7 @@ This does three things they don't:
 | File | Responsibility |
 |---|---|
 | `app.py` | Flask UI + JSON API, password gate, rate limits |
+| `finder/research.py` | Reads a company site for quotable, specific claims |
 | `cli.py` | Command-line entry point |
 | `finder/pipeline.py` | Orchestration; background jobs; per-run budgets |
 | `finder/companies.py` | Discovery, merging, size + directory filtering |
@@ -102,17 +107,29 @@ Each contact row has a **Draft email** button. Pressing it:
 
 1. **Reads the company's site** (`finder/research.py`) — homepage plus the
    product/technology/about pages — and pulls out sentences that make a
-   checkable claim. Sentences are scored: first-person claims ("We build…")
-   and numbers score higher; marketing filler ("world-class", "cutting-edge")
-   and boilerplate ("all rights reserved") score zero.
-2. **Writes the email** (`outreach.internship_draft`) quoting one of those
-   details verbatim rather than paraphrasing it, alongside your background from
-   `APPLICANT_*` config.
-3. **Shows it in an editable textarea**, with the quoted line called out
+   checkable claim. Text is read **block by block**, not by flattening the
+   page: marketing sites are headings and divs with almost no full stops, and
+   flattening one produces a single run-on that no filter can use. Sentences
+   are scored — first-person claims ("We build…"), "X is a Y" definitions, and
+   numbers score up; marketing filler ("world-class", "cutting-edge") and
+   boilerplate ("all rights reserved") score zero.
+2. **Refuses if it found nothing.** No specific detail means no email. The API
+   returns 422 with what it fetched, how many blocks it read, and why each
+   candidate was rejected. A generic email dressed up as a personal one is
+   worse than none: the contact is spent either way, and the generic version
+   guarantees no reply.
+3. **Writes the email** (`outreach.internship_draft`) quoting a detail verbatim
+   rather than paraphrasing it, alongside your background from `APPLICANT_*`
+   config — inserted **exactly as written**, never re-worded.
+4. **Adapts the ask to seniority.** Rank 4 and up (founder, CEO, VP, partner)
+   can actually say yes, so they get the direct internship ask. Below that —
+   directors, managers, engineers — the email asks about their work and makes
+   no request, because asking them for a job is asking the wrong person.
+5. **Shows it in an editable textarea**, with the quoted line called out
    separately as *"Check this line before sending"* and a link to the page it
    came from. It's the one claim written by a machine reading a web page, so it
    is the one line to verify or delete.
-4. **Saves to Gmail Drafts** — never sends.
+6. **Saves to Gmail Drafts** — never sends.
 
 ### Gmail scope
 
@@ -190,7 +207,8 @@ next free port and prints where it landed.
 
 ## Deployment
 
-Runs on Render as a single web service; see `render.yaml`. The start command is:
+Runs on Render as a single web service; see `render.yaml`. The service name
+and URL stay as they were — renaming would break the Gmail OAuth redirect URI. The start command is:
 
 ```
 gunicorn app:app --workers 1 --threads 8 --timeout 180 --bind 0.0.0.0:$PORT
@@ -207,7 +225,7 @@ starts cold, which costs Hunter credits. A persistent disk or Postgres fixes it.
 python -m unittest discover -s tests
 ```
 
-138 tests, all offline.
+148 tests, all offline.
 
 - `test_finder.py` — parsing, title ranking, pattern inference, size and
   directory filtering, caching, drafting, storage.
@@ -215,6 +233,8 @@ python -m unittest discover -s tests
   pipeline: follows the leadership link, obeys robots.txt, takes the published
   address, learns the pattern, applies it to everyone else.
 - `test_app.py` — the password gate, rate limits, quota gate, CSV columns.
+- `test_drafting.py` — page extraction, the refusal contract, verbatim
+  applicant facts, the no-hedging rule, and the seniority-adaptive ask.
 
 Most tests exist because something failed in a live run. `test_finder.py`
 contains the literal strings that broke it: `PhD CEO & Chairman`,

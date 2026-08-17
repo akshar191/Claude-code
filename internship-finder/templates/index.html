@@ -131,6 +131,62 @@
     .basis { font-size: .68rem; color: var(--muted); margin-top: .2rem; }
 
     .src { font-size: .7rem; color: var(--muted); white-space: nowrap; }
+
+    /* Long values must not blow up the column. Truncate, full text on hover. */
+    .clip { display: block; max-width: 100%; overflow: hidden;
+            text-overflow: ellipsis; white-space: nowrap; }
+    td.person { max-width: 190px; }
+    td.co     { max-width: 190px; }
+    td.email  { max-width: 260px; }
+    .mailrow { display: flex; align-items: center; gap: .35rem; }
+    .mailrow .clip { flex: 1 1 auto; min-width: 0; }
+    .mailrow button { flex: 0 0 auto; }
+
+    /* provider notes, collapsed by default */
+    details.diag { margin-bottom: .9rem; }
+    details.diag summary {
+      cursor: pointer; font-size: .74rem; color: var(--muted);
+      list-style: none; display: inline-flex; align-items: center; gap: .35rem;
+    }
+    details.diag summary::-webkit-details-marker { display: none; }
+    details.diag summary::before { content: '▸'; font-size: .65rem; }
+    details.diag[open] summary::before { content: '▾'; }
+    details.diag summary:hover { color: var(--text); }
+    details.diag .body {
+      margin-top: .5rem; padding: .6rem .7rem; background: var(--panel);
+      border: 1px solid var(--border); border-radius: 8px;
+      font-family: ui-monospace, Menlo, monospace; font-size: .7rem;
+      color: var(--muted); line-height: 1.6;
+    }
+
+    dialog {
+      border: 1px solid var(--border); background: var(--panel); color: var(--text);
+      border-radius: 14px; padding: 1.25rem; width: min(680px, 94vw);
+      box-shadow: 0 10px 50px rgba(0,0,0,.6);
+    }
+    dialog::backdrop { background: rgba(0,0,0,.65); }
+    dialog h3 { font-size: 1rem; margin-bottom: .2rem; }
+    dialog .to { font-size: .78rem; color: var(--muted); margin-bottom: .9rem; }
+    dialog textarea {
+      width: 100%; min-height: 300px; background: var(--panel2); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px; padding: .7rem;
+      font-family: ui-monospace, Menlo, monospace; font-size: .8rem;
+      line-height: 1.6; resize: vertical;
+    }
+    dialog textarea:focus { outline: none; border-color: var(--accent); }
+    .verify {
+      background: rgba(245,158,11,.08); border: 1px solid rgba(245,158,11,.3);
+      border-radius: 8px; padding: .6rem .7rem; margin: .7rem 0; font-size: .76rem;
+    }
+    .verify b { color: var(--amber); display: block; margin-bottom: .25rem;
+                font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; }
+    .verify a { color: var(--accent); font-size: .72rem; }
+    .dlg-actions { display: flex; gap: .5rem; justify-content: flex-end;
+                   margin-top: .9rem; flex-wrap: wrap; }
+    .dlg-actions .spacer { margin-right: auto; }
+    .status { font-size: .74rem; color: var(--muted); }
+    .status.ok { color: var(--green); }
+    .status.bad { color: var(--red); }
     .empty { color: var(--muted); font-size: .87rem; text-align: center; padding: 3rem 1rem; }
     .notes { font-size: .75rem; color: var(--amber); margin-bottom: .9rem; }
     .notes div { margin-bottom: .15rem; }
@@ -212,11 +268,37 @@
   </main>
 </div>
 
+<dialog id="draftDlg">
+  <h3 id="dlgCompany"></h3>
+  <div class="to" id="dlgTo"></div>
+
+  <div id="dlgVerify" class="verify" style="display:none">
+    <b>Check this line before sending</b>
+    <div id="dlgWhy"></div>
+    <div style="margin-top:.35rem"><a id="dlgSource" href="#" target="_blank" rel="noopener">source page</a></div>
+  </div>
+
+  <label for="dlgSubject">Subject</label>
+  <input id="dlgSubject" />
+  <label for="dlgBody">Body</label>
+  <textarea id="dlgBody"></textarea>
+
+  <div class="dlg-actions">
+    <span class="status spacer" id="dlgStatus"></span>
+    <button id="dlgCopy">Copy</button>
+    <button id="dlgMailto">Open in mail app</button>
+    <button id="dlgGmail">Save to Gmail Drafts</button>
+    <button id="dlgClose">Close</button>
+  </div>
+</dialog>
+
 <script>
 const $ = (id) => document.getElementById(id);
 let META = {};
 let JOB_ID = null;
 let started = 0;
+let ROWS = [];
+let DRAFT = null;
 
 async function boot() {
   const response = await fetch('/api/meta');
@@ -349,13 +431,26 @@ function tierOf(contact) {
   return { cls: 'tier-guess', label: 'Unconfirmed' };
 }
 
+// Provider trouble (Overpass timeouts, a rate-limited API) is diagnostic, not
+// something to alarm the user with. Server logs it; here it hides behind a toggle.
+function renderNotes(notes) {
+  const list = notes || [];
+  if (!list.length) { $('notes').innerHTML = ''; return; }
+  $('notes').innerHTML = `
+    <details class="diag">
+      <summary>Details (${list.length} note${list.length === 1 ? '' : 's'} from this run)</summary>
+      <div class="body">${list.map((n) => escapeHtml(n)).join('<br>')}</div>
+    </details>`;
+}
+
 function render(companies, notes) {
-  $('notes').innerHTML = (notes || []).map((n) => `<div>${escapeHtml(n)}</div>`).join('');
+  renderNotes(notes);
 
   const rows = [];
   companies.forEach((company) => {
     (company.contacts || []).forEach((contact) => rows.push({ company, contact }));
   });
+  ROWS = rows;
 
   $('resultsTitle').textContent =
     `Results — ${rows.length} contact${rows.length === 1 ? '' : 's'} at ${companies.length} compan${companies.length === 1 ? 'y' : 'ies'}`;
@@ -370,29 +465,32 @@ function render(companies, notes) {
   $('results').innerHTML = `
     <table>
       <thead><tr>
-        <th>Person</th><th>Company</th><th>Email</th><th>Confidence</th><th>Source</th>
+        <th>Person</th><th>Company</th><th>Email</th><th>Confidence</th><th>Source</th><th></th>
       </tr></thead>
       <tbody>
-        ${rows.map(({ company, contact }) => {
+        ${rows.map(({ company, contact }, index) => {
           const tier = tierOf(contact);
           const pct = Math.round((contact.email_confidence || 0) * 100);
           const url = company.website ||
             (company.domain ? 'https://' + company.domain : null);
           return `<tr>
-            <td>
-              <div class="who">${escapeHtml(contact.name)}</div>
-              <div class="role">${escapeHtml(contact.title || '')}</div>
+            <td class="person">
+              <div class="who clip" title="${escapeHtml(contact.name)}">${escapeHtml(contact.name)}</div>
+              <div class="role clip" title="${escapeHtml(contact.title || '')}">${escapeHtml(contact.title || '')}</div>
             </td>
             <td class="co">
-              ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(company.name)}</a>`
-                    : escapeHtml(company.name)}
-              <div class="role">${escapeHtml(company.address || '')}</div>
-            </td>
-            <td>
-              <div class="mail">${escapeHtml(contact.email || '—')}
-                ${contact.email ? `<button onclick="copyText('${escapeHtml(contact.email)}')">copy</button>` : ''}
+              <div class="clip" title="${escapeHtml(company.name)}">
+                ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(company.name)}</a>`
+                      : escapeHtml(company.name)}
               </div>
-              <div class="basis">${escapeHtml(contact.email_basis || '')}</div>
+              <div class="role clip" title="${escapeHtml(company.address || '')}">${escapeHtml(company.address || '')}</div>
+            </td>
+            <td class="email">
+              <div class="mailrow">
+                <span class="mail clip" title="${escapeHtml(contact.email || '')}">${escapeHtml(contact.email || '—')}</span>
+                ${contact.email ? `<button onclick="copyRow(${index})">copy</button>` : ''}
+              </div>
+              <div class="basis clip" title="${escapeHtml(contact.email_basis || '')}">${escapeHtml(contact.email_basis || '')}</div>
             </td>
             <td class="conf ${tier.cls}">
               <div class="conf-top">
@@ -402,6 +500,7 @@ function render(companies, notes) {
               <div class="conf-track"><i style="width:${Math.max(pct, 3)}%"></i></div>
             </td>
             <td class="src">${escapeHtml(contact.source || '')}</td>
+            <td>${contact.email ? `<button onclick="openDraft(${index})">Draft email</button>` : ''}</td>
           </tr>`;
         }).join('')}
       </tbody>
@@ -414,6 +513,88 @@ function escapeHtml(value) {
   return String(value == null ? '' : value).replace(/[&<>"']/g,
     (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }
+
+function copyRow(index) {
+  const row = ROWS[index];
+  if (row && row.contact.email) navigator.clipboard.writeText(row.contact.email);
+}
+
+async function openDraft(index) {
+  const row = ROWS[index];
+  if (!row) return;
+  DRAFT = row;
+
+  $('dlgCompany').textContent = row.company.name;
+  $('dlgTo').textContent = `To ${row.contact.name} <${row.contact.email}>`;
+  $('dlgSubject').value = '';
+  $('dlgBody').value = 'Reading their website…';
+  $('dlgVerify').style.display = 'none';
+  setStatus('');
+  $('draftDlg').showModal();
+
+  const response = await fetch('/api/research', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contact: row.contact, company: row.company }),
+  });
+  const drafted = await response.json();
+  if (!response.ok) { $('dlgBody').value = ''; setStatus(drafted.error || 'failed', 'bad'); return; }
+
+  $('dlgSubject').value = drafted.subject || '';
+  $('dlgBody').value = drafted.body || '';
+  DRAFT.drafted = drafted;
+
+  if (drafted.why) {
+    $('dlgWhy').textContent = drafted.why;
+    const source = (drafted.details && drafted.details[0] && drafted.details[0].url) || '';
+    $('dlgSource').href = source || '#';
+    $('dlgSource').style.display = source ? 'inline' : 'none';
+    $('dlgVerify').style.display = 'block';
+  } else if (drafted.research_error) {
+    setStatus('Could not read their site (' + drafted.research_error + ') — draft is generic.');
+  }
+}
+
+function setStatus(message, kind) {
+  $('dlgStatus').textContent = message || '';
+  $('dlgStatus').className = 'status spacer' + (kind ? ' ' + kind : '');
+}
+
+async function saveToGmail() {
+  if (!DRAFT) return;
+  setStatus('Saving…');
+  const response = await fetch('/api/gmail/draft', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      to: DRAFT.contact.email,
+      to_name: DRAFT.contact.name,
+      subject: $('dlgSubject').value,
+      body: $('dlgBody').value,
+      contact_id: DRAFT.contact.id || null,
+      notes: 'Gmail draft for ' + DRAFT.company.name,
+    }),
+  });
+  const result = await response.json();
+
+  if (response.status === 401 && result.needs_auth) {
+    setStatus('Connect Gmail first — opening consent…');
+    window.open('/gmail/connect', '_blank');
+    return;
+  }
+  if (!response.ok) { setStatus(result.error || 'failed', 'bad'); return; }
+  setStatus('Saved to Gmail Drafts — open Gmail to review and send.', 'ok');
+}
+
+$('dlgClose').addEventListener('click', () => $('draftDlg').close());
+$('dlgCopy').addEventListener('click', () => {
+  navigator.clipboard.writeText($('dlgSubject').value + '\n\n' + $('dlgBody').value);
+  setStatus('Copied.', 'ok');
+});
+$('dlgMailto').addEventListener('click', () => {
+  window.location.href = 'mailto:' + encodeURIComponent(DRAFT.contact.email) +
+    '?subject=' + encodeURIComponent($('dlgSubject').value) +
+    '&body=' + encodeURIComponent($('dlgBody').value);
+});
+$('dlgGmail').addEventListener('click', saveToGmail);
 
 $('go').addEventListener('click', runSearch);
 $('csv').addEventListener('click', () => {

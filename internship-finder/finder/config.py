@@ -34,6 +34,11 @@ CRAWL_DELAY = _num("CRAWL_DELAY", 1.0)
 MAX_PAGES_PER_SITE = _num("MAX_PAGES_PER_SITE", 8)
 RESPECT_ROBOTS = _flag("RESPECT_ROBOTS", True)
 
+# OpenStreetMap/Overpass is off by default. Both public mirrors time out
+# routinely, and when Google Places is configured OSM adds nothing but 45
+# seconds of waiting. Turn it back on if you have no Places key.
+ENABLE_OPENSTREETMAP = _flag("ENABLE_OPENSTREETMAP", False)
+
 # Hunter's free tier is small, and every email-verifier call spends from it.
 # Cap how many a single search may spend so one run cannot drain the month.
 HUNTER_VERIFY_BUDGET = _num("HUNTER_VERIFY_BUDGET", 10)
@@ -63,10 +68,32 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "").strip() or os.urandom(32).hex()
 # Set automatically on Render; forces cookies to HTTPS only.
 IS_PRODUCTION = bool(os.environ.get("RENDER") or _flag("IS_PRODUCTION", False))
 
-DAILY_SEARCH_LIMIT = _num("DAILY_SEARCH_LIMIT", 5)
+DAILY_SEARCH_LIMIT = _num("DAILY_SEARCH_LIMIT", 2)
 MAX_COMPANIES_PER_SEARCH = _num("MAX_COMPANIES_PER_SEARCH", 5)
 # Below this many Hunter searches left, the UI stops offering to run one.
 MIN_QUOTA_TO_SEARCH = _num("MIN_QUOTA_TO_SEARCH", 5)
+
+# --- Gmail drafts -----------------------------------------------------------
+# OAuth client from the Google Cloud console. Scope is gmail.compose only:
+# enough to save a draft, not enough to send one.
+GOOGLE_OAUTH_CLIENT_ID = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+GOOGLE_OAUTH_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.compose"
+
+# --- Who you are (used in drafts) -------------------------------------------
+APPLICANT = {
+    "name": os.environ.get("APPLICANT_NAME", "").strip(),
+    "year": os.environ.get("APPLICANT_YEAR", "high school junior").strip(),
+    "town": os.environ.get("APPLICANT_TOWN", "Ashland, MA").strip(),
+    "work": os.environ.get(
+        "APPLICANT_WORK",
+        "a contractor at Silverside Detectors, assembling lithium-6 neutron detectors",
+    ).strip(),
+    "venture": os.environ.get(
+        "APPLICANT_VENTURE", "founder of a mobile detailing business"
+    ).strip(),
+    "target": os.environ.get("APPLICANT_TARGET", "summer 2027").strip(),
+}
 
 
 def providers():

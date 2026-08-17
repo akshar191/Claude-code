@@ -20,6 +20,7 @@ import csv  # noqa: E402
 import datetime  # noqa: E402
 import functools  # noqa: E402
 import io  # noqa: E402
+import logging  # noqa: E402
 import secrets  # noqa: E402
 import threading  # noqa: E402
 import time  # noqa: E402
@@ -37,13 +38,18 @@ from flask import (  # noqa: E402
 
 from finder import (  # noqa: E402
     config,
+    gmail,
     industries,
     outreach,
     pipeline,
     providers,
+    research,
     store,
     verify,
 )
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger("internship-finder")
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
@@ -141,6 +147,11 @@ def count_search():
 
 _quota_cache = {"at": 0.0, "value": None}
 _quota_lock = threading.Lock()
+
+
+def invalidate_quota():
+    with _quota_lock:
+        _quota_cache.update(at=0.0, value=None)
 
 
 def hunter_quota(max_age=120):
@@ -249,7 +260,12 @@ def start_search():
     )
 
     count_search()
+    # A search spends credits, so the cached quota reading is stale the moment
+    # it starts. Without this the gate could be bypassed for up to two minutes.
+    invalidate_quota()
     job_id = pipeline.start(payload, label=payload.get("label"))
+    log.info("search started job=%s criteria=%s", job_id,
+             {k: payload.get(k) for k in ("industry", "location", "max_companies")})
     return jsonify({"job_id": job_id, "searches_used_today": searches_used()}), 202
 
 
@@ -339,11 +355,142 @@ def lookup_linkedin():
     return jsonify(result)
 
 
+# --------------------------------------------------------------------------
+# Drafting: research the company, then write the email
+# --------------------------------------------------------------------------
+
+
+@app.route("/api/research", methods=["POST"])
+@login_required
+def research_and_draft():
+    """Read the company's site, then draft an internship email from what it says."""
+    payload = request.get_json(silent=True) or {}
+    contact = payload.get("contact") or {}
+    company = payload.get("company") or {}
+    if not company.get("domain") and not company.get("website"):
+        return jsonify({"error": "no company website to read"}), 400
+
+    try:
+        found = research.gather(company)
+    except Exception as exc:  # research is best-effort; still draft without it
+        log.warning("research failed for %s: %s", company.get("domain"), exc)
+        found = {"details": [], "pages": [], "error": str(exc)}
+
+    drafted = outreach.internship_draft(contact, company, found, payload.get("profile"))
+    drafted["research_error"] = found.get("error")
+    drafted["mailto"] = outreach.mailto_link(contact, drafted)
+    return jsonify(drafted)
+
+
+# --------------------------------------------------------------------------
+# Gmail: save drafts only. gmail.compose is requested; gmail.send never is.
+# --------------------------------------------------------------------------
+
+
+def _gmail_redirect_uri():
+    return url_for("gmail_callback", _external=True, _scheme=
+                   "https" if config.IS_PRODUCTION else "http")
+
+
+@app.route("/api/gmail/status")
+@login_required
+def gmail_status():
+    if not gmail.configured():
+        return jsonify({"configured": False, "connected": False})
+    tokens, account = store.load_tokens(session.get("sid") or "", "gmail")
+    return jsonify({
+        "configured": True,
+        "connected": bool(tokens),
+        "account": account,
+        "scope": config.GMAIL_SCOPE,
+    })
+
+
+@app.route("/gmail/connect")
+@login_required
+def gmail_connect():
+    if not gmail.configured():
+        return "Gmail OAuth is not configured on this server.", 503
+    state = secrets.token_urlsafe(16)
+    session["gmail_state"] = state
+    return redirect(gmail.authorize_url(_gmail_redirect_uri(), state))
+
+
+@app.route("/gmail/callback")
+@login_required
+def gmail_callback():
+    if request.args.get("state") != session.pop("gmail_state", None):
+        return "State mismatch -- start again from the app.", 400
+    if request.args.get("error"):
+        return redirect(url_for("index"))
+
+    code = request.args.get("code")
+    if not code:
+        return "No authorization code returned.", 400
+
+    tokens, error = gmail.exchange_code(code, _gmail_redirect_uri())
+    if error:
+        log.warning("gmail token exchange failed: %s", error)
+        return "Could not connect Gmail: %s" % error, 502
+
+    account, _ = gmail.account_email(tokens)
+    store.save_tokens(session.get("sid") or "", "gmail", tokens, account)
+    return redirect(url_for("index"))
+
+
+@app.route("/api/gmail/disconnect", methods=["POST"])
+@login_required
+def gmail_disconnect():
+    store.clear_tokens(session.get("sid") or "", "gmail")
+    return jsonify({"connected": False})
+
+
+@app.route("/api/gmail/draft", methods=["POST"])
+@login_required
+def gmail_draft():
+    """Create a Gmail draft. Never sends -- the user opens Gmail and decides."""
+    payload = request.get_json(silent=True) or {}
+    to_address = (payload.get("to") or "").strip()
+    subject = (payload.get("subject") or "").strip()
+    body = payload.get("body") or ""
+    if not to_address or not subject or not body:
+        return jsonify({"error": "need a recipient, a subject and a body"}), 400
+
+    session_id = session.get("sid") or ""
+    tokens, _account = store.load_tokens(session_id, "gmail")
+    if not tokens:
+        return jsonify({"error": "Gmail is not connected", "needs_auth": True}), 401
+
+    result, error = gmail.create_draft(
+        tokens, to_address, subject, body, to_name=payload.get("to_name")
+    )
+    if error:
+        log.warning("gmail draft failed: %s", error)
+        return jsonify({"error": error}), 502
+
+    # The access token may have been refreshed during the call.
+    store.save_tokens(session_id, "gmail", result.pop("tokens"), _account)
+
+    if payload.get("contact_id"):
+        store.update_contact(
+            payload["contact_id"], status="contacted",
+            notes=payload.get("notes") or "Gmail draft created",
+        )
+    log.info("gmail draft created for %s", to_address)
+    return jsonify(result)
+
+
 CSV_COLUMNS = [
     "name", "title", "company", "email", "confidence", "source", "company_url",
     "email_status", "how_we_got_it", "seniority", "linkedin", "company_location",
     "contacted_on", "replied", "notes",
 ]
+
+
+def _iso_date(timestamp):
+    if not timestamp:
+        return ""
+    return datetime.datetime.fromtimestamp(timestamp).date().isoformat()
 
 
 def _csv_rows_from_job(job):
@@ -399,8 +546,8 @@ def export_csv():
                 "seniority": row.get("seniority"),
                 "linkedin": row.get("linkedin_url"),
                 "company_location": row.get("address"),
-                "contacted_on": "",
-                "replied": "",
+                "contacted_on": _iso_date(row.get("contacted_at")),
+                "replied": "yes" if row.get("status") == "replied" else "",
                 "notes": row.get("notes") or "",
             })
 

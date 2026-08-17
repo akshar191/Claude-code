@@ -11,7 +11,7 @@ Three sources, used together and merged:
 import re
 import threading
 
-from . import industries, providers, text, web
+from . import config, industries, providers, text, web
 
 NOMINATIM = "https://nominatim.openstreetmap.org/search"
 
@@ -98,7 +98,14 @@ def _overpass_query(filters, name_hint, lat, lon, radius_m):
 
 
 def from_openstreetmap(criteria, geo):
-    """Free source. Returns (companies, error)."""
+    """Free source. Returns (companies, error).
+
+    Disabled by default -- see config.ENABLE_OPENSTREETMAP. Both public Overpass
+    mirrors time out often enough that the source was contributing nothing but
+    delay on every run.
+    """
+    if not config.ENABLE_OPENSTREETMAP:
+        return [], None
     if not geo:
         return [], "could not geocode that location"
 
@@ -301,8 +308,12 @@ def discover(criteria, on_progress=None):
             on_progress(message)
 
     notes = []
-    geo = geocode(criteria.get("location")) if criteria.get("location") else None
-    if criteria.get("location") and not geo:
+    # Only OSM needs coordinates; Places takes the location as text. Skip the
+    # geocode round-trip (and its failure mode) when OSM is off.
+    geo = None
+    if criteria.get("location") and config.ENABLE_OPENSTREETMAP:
+        geo = geocode(criteria["location"])
+    if criteria.get("location") and config.ENABLE_OPENSTREETMAP and not geo:
         notes.append("Could not place '%s' on the map; falling back to text search."
                      % criteria["location"])
 

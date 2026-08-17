@@ -28,7 +28,7 @@ services:
       - key: CONTACT_EMAIL
         sync: false
       - key: DAILY_SEARCH_LIMIT
-        value: "5"
+        value: "2"
       - key: MAX_COMPANIES_PER_SEARCH
         value: "5"
       - key: HUNTER_VERIFY_BUDGET
@@ -37,3 +37,13 @@ services:
         value: "6"
       - key: ENABLE_SMTP_PROBE
         value: "false"
+      - key: ENABLE_OPENSTREETMAP
+        value: "false"
+      # Gmail drafts (optional). The OAuth client's redirect URI must be
+      # https://<your-service>.onrender.com/gmail/callback
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: APPLICANT_NAME
+        sync: false

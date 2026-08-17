@@ -96,6 +96,38 @@ This is why the service runs **one gunicorn worker with threads**: the job
 registry lives in process memory, so a second worker wouldn't see jobs started
 by the first.
 
+## Drafting an email
+
+Each contact row has a **Draft email** button. Pressing it:
+
+1. **Reads the company's site** (`finder/research.py`) — homepage plus the
+   product/technology/about pages — and pulls out sentences that make a
+   checkable claim. Sentences are scored: first-person claims ("We build…")
+   and numbers score higher; marketing filler ("world-class", "cutting-edge")
+   and boilerplate ("all rights reserved") score zero.
+2. **Writes the email** (`outreach.internship_draft`) quoting one of those
+   details verbatim rather than paraphrasing it, alongside your background from
+   `APPLICANT_*` config.
+3. **Shows it in an editable textarea**, with the quoted line called out
+   separately as *"Check this line before sending"* and a link to the page it
+   came from. It's the one claim written by a machine reading a web page, so it
+   is the one line to verify or delete.
+4. **Saves to Gmail Drafts** — never sends.
+
+### Gmail scope
+
+The OAuth scope requested is `gmail.compose` and nothing else. That permits
+creating a draft; it does not permit sending. Even a stolen token cannot mail
+anyone from the account. A test asserts `gmail.send` never appears in the
+consent URL.
+
+Tokens are stored in SQLite keyed by session, not in the cookie — Flask session
+cookies are signed but not encrypted, and a refresh token does not belong in
+something the browser can read.
+
+Marking a draft as created sets the contact's status to `contacted`, which flows
+through to the `contacted_on` / `replied` / `notes` columns in the CSV.
+
 ## Cost control
 
 The free tiers are small (Hunter is 50 lookups/month), and this is deployed
@@ -105,7 +137,7 @@ publicly, so spending is capped in several independent places:
   cached in SQLite for 30 days, so a repeated search costs nothing.
 - **Per-run budgets** — `HUNTER_FINDER_BUDGET` (6) per-person lookups and
   `HUNTER_VERIFY_BUDGET` (10) verifications per search.
-- **Rate limits** — `DAILY_SEARCH_LIMIT` (5) per session *and* per IP, whichever
+- **Rate limits** — `DAILY_SEARCH_LIMIT` (2) per session *and* per IP, whichever
   is stricter, so clearing cookies gains little.
 - **Hard cap** — `MAX_COMPANIES_PER_SEARCH` (5), enforced server-side.
 - **Quota gate** — when fewer than `MIN_QUOTA_TO_SEARCH` Hunter lookups remain,
@@ -139,7 +171,7 @@ gitignored. No key appears anywhere in the repository or its history.
 | `APOLLO_API_KEY` | no | The only source with a real headcount filter |
 | `ROCKETREACH_API_KEY` | no | LinkedIn URL → address |
 | `CONTACT_EMAIL` | no | Identifies the crawler to sites it reads |
-| `DAILY_SEARCH_LIMIT` | no | Default 5 |
+| `DAILY_SEARCH_LIMIT` | no | Default 2 |
 | `MAX_COMPANIES_PER_SEARCH` | no | Default 5 |
 
 ## Local development
@@ -175,7 +207,7 @@ starts cold, which costs Hunter credits. A persistent disk or Postgres fixes it.
 python -m unittest discover -s tests
 ```
 
-118 tests, all offline.
+138 tests, all offline.
 
 - `test_finder.py` — parsing, title ranking, pattern inference, size and
   directory filtering, caching, drafting, storage.

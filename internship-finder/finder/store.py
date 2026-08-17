@@ -57,6 +57,14 @@ CREATE TABLE IF NOT EXISTS contacts (
     UNIQUE (company_id, name)
 );
 
+CREATE TABLE IF NOT EXISTS oauth_tokens (
+    session_id TEXT PRIMARY KEY,
+    provider   TEXT NOT NULL,
+    tokens     TEXT NOT NULL,
+    account    TEXT,
+    updated_at REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS rate_limit (
     bucket TEXT NOT NULL,
     day    TEXT NOT NULL,
@@ -87,6 +95,42 @@ def connect():
 def init_db():
     with connect() as conn:
         conn.executescript(SCHEMA)
+
+
+def save_tokens(session_id, provider, tokens, account=None):
+    """OAuth tokens live in the database, not in the cookie.
+
+    Flask session cookies are signed but not encrypted, so anything put in one
+    is readable by whoever holds it. A refresh token does not belong there.
+    """
+    with connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO oauth_tokens "
+            "(session_id, provider, tokens, account, updated_at) VALUES (?,?,?,?,?)",
+            (session_id, provider, json.dumps(tokens), account, time.time()),
+        )
+
+
+def load_tokens(session_id, provider):
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT tokens, account FROM oauth_tokens WHERE session_id = ? AND provider = ?",
+            (session_id, provider),
+        ).fetchone()
+    if not row:
+        return None, None
+    try:
+        return json.loads(row["tokens"]), row["account"]
+    except ValueError:
+        return None, None
+
+
+def clear_tokens(session_id, provider):
+    with connect() as conn:
+        conn.execute(
+            "DELETE FROM oauth_tokens WHERE session_id = ? AND provider = ?",
+            (session_id, provider),
+        )
 
 
 def rate_count(bucket, day):
@@ -295,7 +339,7 @@ def export_rows(search_id=None):
                       c.employee_count, c.size_note,
                       ct.id AS contact_id, ct.name, ct.title, ct.seniority,
                       ct.email, ct.email_confidence, ct.email_status, ct.email_basis,
-                      ct.linkedin_url, ct.source, ct.status, ct.notes
+                      ct.linkedin_url, ct.source, ct.status, ct.notes, ct.contacted_at
                  FROM contacts ct JOIN companies c ON c.id = ct.company_id"""
     params = ()
     if search_id:

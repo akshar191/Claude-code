@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Internship Finder</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0d0f14; --panel: #13161e; --border: #252936; --accent: #4f8ef7;
+      --accent2: #7b5cf0; --text: #e2e8f0; --muted: #64748b; --red: #ef4444;
+    }
+    body {
+      background: var(--bg); color: var(--text); min-height: 100vh;
+      display: flex; align-items: center; justify-content: center; padding: 1.5rem;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; line-height: 1.5;
+    }
+    .card {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+      padding: 2rem; width: min(400px, 100%); box-shadow: 0 8px 40px rgba(0,0,0,.5);
+    }
+    h1 { font-size: 1.3rem; margin-bottom: .35rem; }
+    h1 span { color: var(--accent); }
+    p.sub { color: var(--muted); font-size: .85rem; margin-bottom: 1.5rem; }
+    label { display: block; font-size: .75rem; color: var(--muted); margin-bottom: .35rem; }
+    input {
+      width: 100%; background: #1a1e2a; border: 1px solid var(--border); color: var(--text);
+      border-radius: 8px; padding: .65rem .75rem; font: inherit; font-size: .9rem;
+    }
+    input:focus { outline: none; border-color: var(--accent); }
+    button {
+      width: 100%; margin-top: 1rem; padding: .7rem; border: none; border-radius: 8px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+    }
+    button:hover { filter: brightness(1.1); }
+    .error {
+      background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.35);
+      color: #fca5a5; border-radius: 8px; padding: .6rem .75rem;
+      font-size: .82rem; margin-bottom: 1rem;
+    }
+    code { background: #1a1e2a; padding: .1rem .35rem; border-radius: 4px; font-size: .8rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Internship <span>Finder</span></h1>
+    <p class="sub">Finds small companies in a field and city, then the senior
+      people there worth emailing.</p>
+
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+    {% if locked %}
+      <p class="sub">Set the <code>APP_PASSWORD</code> environment variable on the
+        server and restart. Until then nothing is served.</p>
+    {% else %}
+      <form method="post" autocomplete="off">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autofocus required />
+        <button type="submit">Sign in</button>
+      </form>
+    {% endif %}
+  </div>
+</body>
+</html>

@@ -8,146 +8,152 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg:      #0d0f14;
-      --bg2:     #13161e;
-      --bg3:     #1a1e2a;
-      --border:  #252936;
-      --accent:  #4f8ef7;
-      --accent2: #7b5cf0;
-      --green:   #22c55e;
-      --amber:   #f59e0b;
-      --red:     #ef4444;
-      --text:    #e2e8f0;
-      --muted:   #64748b;
-      --radius:  12px;
-      --shadow:  0 4px 24px rgba(0,0,0,.4);
+      --bg: #0d0f14; --panel: #13161e; --panel2: #1a1e2a; --border: #252936;
+      --accent: #4f8ef7; --accent2: #7b5cf0;
+      --green: #22c55e; --amber: #f59e0b; --red: #ef4444;
+      --text: #e2e8f0; --muted: #64748b; --radius: 12px;
     }
 
     html { font-size: 15px; }
     body {
-      background: var(--bg); color: var(--text); line-height: 1.5; min-height: 100vh;
+      background: var(--bg); color: var(--text); min-height: 100vh; line-height: 1.5;
       font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
     }
 
     header {
-      border-bottom: 1px solid var(--border); background: var(--bg2);
-      padding: 1rem 1.5rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+      border-bottom: 1px solid var(--border); background: var(--panel);
+      padding: .9rem 1.5rem; display: flex; align-items: center; gap: 1rem;
+      flex-wrap: wrap; position: sticky; top: 0; z-index: 10;
     }
-    header h1 { font-size: 1.15rem; font-weight: 600; }
+    header h1 { font-size: 1.05rem; font-weight: 600; }
     header h1 span { color: var(--accent); }
-    .sources { display: flex; gap: .4rem; flex-wrap: wrap; margin-left: auto; }
-    .chip {
-      font-size: .7rem; padding: .2rem .55rem; border-radius: 999px;
-      border: 1px solid var(--border); background: var(--bg3); color: var(--muted);
+    .spacer { margin-left: auto; }
+    .pill {
+      font-size: .72rem; padding: .25rem .6rem; border-radius: 999px;
+      border: 1px solid var(--border); background: var(--panel2); color: var(--muted);
     }
-    .chip.on { color: var(--green); border-color: rgba(34,197,94,.4); }
+    .pill.good { color: var(--green); border-color: rgba(34,197,94,.4); }
+    .pill.warn { color: var(--amber); border-color: rgba(245,158,11,.4); }
+    header a { color: var(--muted); font-size: .75rem; text-decoration: none; }
+    header a:hover { color: var(--text); }
 
-    .wrap { max-width: 1180px; margin: 0 auto; padding: 1.5rem; display: grid;
-            grid-template-columns: 320px 1fr; gap: 1.25rem; align-items: start; }
-    @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 1.5rem;
+            display: grid; grid-template-columns: 300px 1fr; gap: 1.25rem;
+            align-items: start; }
+    @media (max-width: 880px) { .wrap { grid-template-columns: 1fr; } }
 
     .card {
-      background: var(--bg2); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 1.1rem; box-shadow: var(--shadow);
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.1rem;
     }
     .card + .card { margin-top: 1rem; }
-    .card h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
-               color: var(--muted); margin-bottom: .85rem; font-weight: 600; }
+    .card h2 {
+      font-size: .72rem; text-transform: uppercase; letter-spacing: .09em;
+      color: var(--muted); margin-bottom: .9rem; font-weight: 600;
+    }
 
-    label { display: block; font-size: .75rem; color: var(--muted); margin: .65rem 0 .25rem; }
-    input, select, textarea {
-      width: 100%; background: var(--bg3); border: 1px solid var(--border);
+    label { display: block; font-size: .74rem; color: var(--muted); margin: .7rem 0 .25rem; }
+    input, select {
+      width: 100%; background: var(--panel2); border: 1px solid var(--border);
       color: var(--text); border-radius: 8px; padding: .5rem .6rem;
       font: inherit; font-size: .85rem;
     }
-    input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+    input:focus, select:focus { outline: none; border-color: var(--accent); }
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
-    .checkline { display: flex; align-items: center; gap: .5rem; margin-top: .75rem; }
-    .checkline input { width: auto; }
-    .checkline label { margin: 0; color: var(--text); font-size: .8rem; }
 
     button {
       font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--border);
-      background: var(--bg3); color: var(--text); padding: .45rem .8rem; font-size: .82rem;
+      background: var(--panel2); color: var(--text); padding: .45rem .8rem; font-size: .82rem;
     }
     button:hover:not(:disabled) { border-color: var(--accent); }
-    button:disabled { opacity: .5; cursor: not-allowed; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
     .primary {
-      width: 100%; margin-top: 1rem; padding: .65rem; font-weight: 600; border: none;
+      width: 100%; margin-top: 1.1rem; padding: .7rem; font-weight: 600; border: none;
       background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff;
     }
-    .tiny { font-size: .72rem; padding: .25rem .5rem; }
+    .primary:disabled { background: var(--panel2); color: var(--muted); border: 1px solid var(--border); }
 
-    .hint { font-size: .72rem; color: var(--muted); margin-top: .5rem; line-height: 1.45; }
+    .hint { font-size: .72rem; color: var(--muted); margin-top: .55rem; line-height: 1.5; }
+    .hint.warn { color: var(--amber); }
 
+    /* progress */
+    #progress { display: none; }
+    .bar { height: 4px; background: var(--panel2); border-radius: 999px; overflow: hidden; margin-bottom: .8rem; }
+    .bar i { display: block; height: 100%; width: 30%; border-radius: 999px;
+             background: linear-gradient(90deg, var(--accent), var(--accent2));
+             animation: slide 1.4s ease-in-out infinite; }
+    @keyframes slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+    .stat-row { display: flex; gap: 1.5rem; margin-bottom: .8rem; flex-wrap: wrap; }
+    .stat b { display: block; font-size: 1.35rem; font-weight: 600; }
+    .stat span { font-size: .7rem; color: var(--muted); text-transform: uppercase;
+                 letter-spacing: .06em; }
     #log {
-      font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: .72rem;
-      color: var(--muted); max-height: 170px; overflow-y: auto; margin-top: .75rem;
-      border-top: 1px solid var(--border); padding-top: .6rem; display: none;
+      font-family: ui-monospace, Menlo, monospace; font-size: .72rem; color: var(--muted);
+      max-height: 160px; overflow-y: auto; border-top: 1px solid var(--border);
+      padding-top: .6rem;
     }
-    #log div { padding: .1rem 0; }
+    #log div { padding: .08rem 0; }
 
-    .company {
-      background: var(--bg2); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 1rem 1.1rem; margin-bottom: .9rem;
-    }
-    .company-head { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
-    .company-head h3 { font-size: 1rem; font-weight: 600; }
-    .company-head a { color: var(--accent); font-size: .78rem; text-decoration: none; }
-    .company-meta { font-size: .74rem; color: var(--muted); margin-top: .3rem; }
-    .badge {
-      font-size: .66rem; padding: .12rem .45rem; border-radius: 999px;
-      border: 1px solid var(--border); background: var(--bg3); color: var(--muted);
-    }
-    .badge.good { color: var(--green); border-color: rgba(34,197,94,.4); }
-    .badge.mid  { color: var(--amber); border-color: rgba(245,158,11,.4); }
-    .badge.bad  { color: var(--red);   border-color: rgba(239,68,68,.4); }
+    /* results */
+    .toolbar { display: flex; align-items: center; gap: .6rem; margin-bottom: .9rem; flex-wrap: wrap; }
+    .toolbar h2 { font-size: .95rem; font-weight: 600; color: var(--text);
+                  text-transform: none; letter-spacing: 0; margin: 0; }
 
-    .contact {
-      display: grid; grid-template-columns: 1fr auto; gap: .5rem; align-items: center;
-      border-top: 1px solid var(--border); padding: .6rem 0 .5rem;
+    table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+    thead th {
+      text-align: left; font-size: .68rem; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); font-weight: 600; padding: .5rem .6rem;
+      border-bottom: 1px solid var(--border); white-space: nowrap;
     }
-    .contact:first-of-type { margin-top: .7rem; }
-    .contact .who { font-size: .87rem; font-weight: 500; }
-    .contact .title { font-size: .74rem; color: var(--muted); }
-    .contact .mail {
-      font-family: ui-monospace, Menlo, monospace; font-size: .78rem;
-      color: var(--accent); margin-top: .2rem; word-break: break-all;
-    }
-    .contact .basis { font-size: .68rem; color: var(--muted); margin-top: .15rem; }
-    .actions { display: flex; gap: .35rem; flex-wrap: wrap; justify-content: flex-end; }
+    tbody td { padding: .6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tbody tr:hover { background: rgba(79,142,247,.04); }
+    .who { font-weight: 500; }
+    .role { font-size: .74rem; color: var(--muted); }
+    .co a { color: var(--accent); text-decoration: none; font-size: .8rem; }
+    .co a:hover { text-decoration: underline; }
+    .mail { font-family: ui-monospace, Menlo, monospace; font-size: .78rem; word-break: break-all; }
+    .mail button { padding: .1rem .35rem; font-size: .66rem; margin-left: .3rem; }
 
-    .empty { color: var(--muted); font-size: .85rem; text-align: center; padding: 2.5rem 1rem; }
+    /* confidence: the whole point is that a guess never looks verified */
+    .conf { min-width: 132px; }
+    .conf-top { display: flex; align-items: center; gap: .4rem; }
+    .conf-num { font-variant-numeric: tabular-nums; font-weight: 600; font-size: .82rem; }
+    .conf-track { height: 5px; background: var(--panel2); border-radius: 999px;
+                  overflow: hidden; margin-top: .3rem; }
+    .conf-track i { display: block; height: 100%; border-radius: 999px; }
+    .conf-label { font-size: .66rem; text-transform: uppercase; letter-spacing: .05em; }
+    .tier-verified .conf-num, .tier-verified .conf-label { color: var(--green); }
+    .tier-verified .conf-track i { background: var(--green); }
+    .tier-derived .conf-num, .tier-derived .conf-label { color: var(--amber); }
+    .tier-derived .conf-track i { background: var(--amber); }
+    .tier-guess .conf-num, .tier-guess .conf-label { color: var(--red); }
+    .tier-guess .conf-track i { background: var(--red); }
+    .basis { font-size: .68rem; color: var(--muted); margin-top: .2rem; }
 
-    dialog {
-      border: 1px solid var(--border); background: var(--bg2); color: var(--text);
-      border-radius: var(--radius); padding: 1.25rem; width: min(640px, 92vw);
-      box-shadow: var(--shadow);
-    }
-    dialog::backdrop { background: rgba(0,0,0,.6); }
-    dialog textarea { min-height: 260px; font-family: ui-monospace, Menlo, monospace;
-                      font-size: .8rem; line-height: 1.55; resize: vertical; }
-    .dialog-actions { display: flex; gap: .5rem; justify-content: flex-end; margin-top: .9rem; }
-
-    .notes { font-size: .75rem; color: var(--amber); margin-bottom: .8rem; }
-    .notes div { margin-bottom: .2rem; }
-    .saved-item { display: flex; justify-content: space-between; gap: .5rem;
-                  align-items: center; font-size: .78rem; padding: .35rem 0;
-                  border-top: 1px solid var(--border); }
-    .saved-item a { color: var(--accent); text-decoration: none; cursor: pointer; }
+    .src { font-size: .7rem; color: var(--muted); white-space: nowrap; }
+    .empty { color: var(--muted); font-size: .87rem; text-align: center; padding: 3rem 1rem; }
+    .notes { font-size: .75rem; color: var(--amber); margin-bottom: .9rem; }
+    .notes div { margin-bottom: .15rem; }
+    .legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: .7rem;
+              color: var(--muted); margin-top: .9rem; }
+    .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+                margin-right: .3rem; vertical-align: middle; }
   </style>
 </head>
 <body>
 
 <header>
   <h1>Internship <span>Finder</span></h1>
-  <div class="sources" id="sources"></div>
+  <div class="spacer"></div>
+  <span class="pill" id="quotaPill">checking quota…</span>
+  <span class="pill" id="limitPill"></span>
+  <a href="/logout">Sign out</a>
 </header>
 
 <div class="wrap">
   <aside>
     <div class="card">
-      <h2>What are you looking for?</h2>
+      <h2>Search</h2>
       <label for="industry">Field</label>
       <select id="industry"></select>
 
@@ -155,149 +161,104 @@
       <input id="location" placeholder="Boston, MA" value="Boston, MA" />
 
       <label for="keyword">Extra keyword (optional)</label>
-      <input id="keyword" placeholder="e.g. robotics, medical devices" />
+      <input id="keyword" placeholder="e.g. medical devices" />
 
       <div class="row">
         <div>
-          <label for="minEmp">Min employees</label>
-          <input id="minEmp" type="number" min="1" value="2" />
-        </div>
-        <div>
           <label for="maxEmp">Max employees</label>
           <input id="maxEmp" type="number" min="1" value="200" />
+        </div>
+        <div>
+          <label for="maxCo">Companies</label>
+          <input id="maxCo" type="number" min="1" value="5" />
         </div>
       </div>
 
       <label for="seniority">Most junior person worth emailing</label>
       <select id="seniority"></select>
 
-      <div class="row">
-        <div>
-          <label for="maxCo">Companies</label>
-          <input id="maxCo" type="number" min="1" max="40" value="12" />
-        </div>
-        <div>
-          <label for="perCo">People each</label>
-          <input id="perCo" type="number" min="1" max="10" value="3" />
-        </div>
-      </div>
-
-      <div class="checkline">
-        <input type="checkbox" id="verify" checked />
-        <label for="verify">Verify email addresses</label>
-      </div>
-
       <button class="primary" id="go">Find companies</button>
-      <div class="hint" id="hint">Crawling is rate-limited on purpose, so a run over
-        12 companies takes a couple of minutes.</div>
-      <div id="log"></div>
+      <div class="hint" id="hint">A search reads each company's website at a
+        polite one request per second, so it takes a minute or two.</div>
     </div>
 
-    <div class="card">
-      <h2>About you (used in drafts)</h2>
-      <label for="pName">Your name</label>
-      <input id="pName" placeholder="Alex Chen" />
-      <div class="row">
-        <div>
-          <label for="pSchool">School</label>
-          <input id="pSchool" placeholder="Northeastern" />
-        </div>
-        <div>
-          <label for="pYear">Year</label>
-          <input id="pYear" placeholder="sophomore" />
-        </div>
+    <div class="card" id="progress">
+      <h2>Working</h2>
+      <div class="bar"><i></i></div>
+      <div class="stat-row">
+        <div class="stat"><b id="statCompanies">0</b><span>companies</span></div>
+        <div class="stat"><b id="statContacts">0</b><span>contacts</span></div>
+        <div class="stat"><b id="statElapsed">0s</b><span>elapsed</span></div>
       </div>
-      <label for="pMajor">Major / field</label>
-      <input id="pMajor" placeholder="Mechanical Engineering" />
-      <label for="pSkills">One thing you've built or done</label>
-      <input id="pSkills" placeholder="a FSAE suspension rig in SolidWorks" />
-      <label for="pPortfolio">Portfolio / GitHub (optional)</label>
-      <input id="pPortfolio" placeholder="https://..." />
-      <div class="hint">Saved in this browser only.</div>
-    </div>
-
-    <div class="card">
-      <h2>LinkedIn URL &rarr; email</h2>
-      <input id="liUrl" placeholder="https://linkedin.com/in/..." />
-      <button class="tiny" id="liGo" style="margin-top:.6rem">Look up</button>
-      <div class="hint" id="liOut">Uses the RocketReach API. Needs ROCKETREACH_API_KEY.</div>
-    </div>
-
-    <div class="card">
-      <h2>Saved searches</h2>
-      <div id="saved"><div class="hint">Nothing saved yet.</div></div>
+      <div id="log"></div>
     </div>
   </aside>
 
   <main>
     <div id="notes" class="notes"></div>
-    <div id="results"><div class="empty">Pick a field and a city, then hit
-      <strong>Find companies</strong>.</div></div>
+    <div class="toolbar">
+      <h2 id="resultsTitle">Results</h2>
+      <div class="spacer"></div>
+      <button id="csv" disabled>Download CSV</button>
+    </div>
+    <div id="results">
+      <div class="empty">Pick a field and a city, then hit <strong>Find companies</strong>.</div>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--green)"></i><strong>Verified</strong> (85%+) — published on the site, or confirmed</span>
+      <span><i style="background:var(--amber)"></i><strong>Probable</strong> (55–84%) — built from the company's known format</span>
+      <span><i style="background:var(--red)"></i><strong>Unconfirmed</strong> (&lt;55%) — expect some of these to bounce</span>
+    </div>
   </main>
 </div>
-
-<dialog id="draftDlg">
-  <h2 style="font-size:.95rem;margin-bottom:.75rem" id="draftTo"></h2>
-  <label for="draftStyle">Angle</label>
-  <select id="draftStyle"></select>
-  <label for="draftSubject">Subject</label>
-  <input id="draftSubject" />
-  <label for="draftBody">Body</label>
-  <textarea id="draftBody"></textarea>
-  <div class="dialog-actions">
-    <button id="draftCopy">Copy</button>
-    <button id="draftOpen">Open in mail app</button>
-    <button id="draftSent">Mark as contacted</button>
-    <button id="draftClose">Close</button>
-  </div>
-</dialog>
 
 <script>
 const $ = (id) => document.getElementById(id);
 let META = {};
-let CURRENT = [];
-let DRAFT_CONTACT = null;
-
-const PROFILE_FIELDS = {
-  pName: 'name', pSchool: 'school', pYear: 'year',
-  pMajor: 'major', pSkills: 'skills', pPortfolio: 'portfolio_url',
-};
-
-function loadProfile() {
-  const saved = JSON.parse(localStorage.getItem('profile') || '{}');
-  for (const [id, key] of Object.entries(PROFILE_FIELDS)) {
-    $(id).value = saved[key] || '';
-    $(id).addEventListener('input', saveProfile);
-  }
-}
-function saveProfile() {
-  const profile = {};
-  for (const [id, key] of Object.entries(PROFILE_FIELDS)) profile[key] = $(id).value.trim();
-  localStorage.setItem('profile', JSON.stringify(profile));
-  return profile;
-}
-const profile = () => JSON.parse(localStorage.getItem('profile') || '{}');
+let JOB_ID = null;
+let started = 0;
 
 async function boot() {
-  META = await (await fetch('/api/meta')).json();
+  const response = await fetch('/api/meta');
+  if (response.status === 401) { window.location = '/login'; return; }
+  META = await response.json();
 
   $('industry').innerHTML = META.industries
     .map((i) => `<option value="${i.value}">${i.label}</option>`).join('');
-  $('industry').value = 'mechanical_engineering';
+  $('industry').value = 'robotics';
 
   $('seniority').innerHTML = META.seniority_levels
     .map((s) => `<option value="${s.value}">${s.label} and up</option>`).join('');
   $('seniority').value = 3;
 
-  $('draftStyle').innerHTML = META.draft_styles
-    .map((s) => `<option value="${s.value}">${s.label}</option>`).join('');
+  $('maxCo').max = META.limits.max_companies;
+  $('maxCo').value = Math.min(+$('maxCo').value, META.limits.max_companies);
 
-  $('sources').innerHTML = Object.entries(META.providers)
-    .map(([name, on]) => `<span class="chip ${on ? 'on' : ''}">${name.replace(/_/g, ' ')}</span>`)
-    .join('');
+  renderQuota();
+}
 
-  loadProfile();
-  refreshSaved();
+function renderQuota() {
+  const quota = META.quota || {};
+  const pill = $('quotaPill');
+  if (!quota.configured) {
+    pill.textContent = 'Hunter not configured';
+  } else if (quota.error) {
+    pill.textContent = 'Hunter unavailable';
+    pill.className = 'pill warn';
+  } else {
+    pill.textContent = `Hunter: ${quota.remaining} of ${quota.available} left`;
+    pill.className = 'pill ' + (quota.remaining < 10 ? 'warn' : 'good');
+  }
+
+  const limits = META.limits || {};
+  $('limitPill').textContent =
+    `${limits.searches_used_today}/${limits.daily_searches} searches today`;
+
+  if (!META.can_search) {
+    $('go').disabled = true;
+    $('hint').className = 'hint warn';
+    $('hint').textContent = META.blocked_reason;
+  }
 }
 
 function criteria() {
@@ -305,12 +266,11 @@ function criteria() {
     industry: $('industry').value,
     location: $('location').value.trim(),
     keyword: $('keyword').value.trim(),
-    min_employees: +$('minEmp').value || 1,
     max_employees: +$('maxEmp').value || 200,
+    max_companies: Math.min(+$('maxCo').value || 5, META.limits.max_companies),
     min_seniority: +$('seniority').value,
-    max_companies: +$('maxCo').value || 12,
-    contacts_per_company: +$('perCo').value || 3,
-    verify_emails: $('verify').checked,
+    contacts_per_company: 3,
+    verify_emails: true,
   };
 }
 
@@ -319,22 +279,29 @@ async function runSearch() {
   if (!body.location && !body.keyword) { alert('Give me a city or a keyword.'); return; }
 
   $('go').disabled = true;
-  $('go').textContent = 'Searching...';
-  $('log').style.display = 'block';
+  $('go').textContent = 'Searching…';
+  $('progress').style.display = 'block';
   $('log').innerHTML = '';
   $('notes').innerHTML = '';
-  $('results').innerHTML = '<div class="empty">Working...</div>';
+  $('csv').disabled = true;
+  $('results').innerHTML = '<div class="empty">Reading company websites…</div>';
+  started = Date.now();
 
-  const started = await fetch('/api/search', {
+  const response = await fetch('/api/search', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  const payload = await started.json();
-  if (!started.ok) { finish(payload.error || 'search failed'); return; }
+  const payload = await response.json();
+  if (!response.ok) { finish(payload.error); return; }
+
+  JOB_ID = payload.job_id;
+  META.limits.searches_used_today = payload.searches_used_today;
+  renderQuota();
 
   let seen = 0;
   const timer = setInterval(async () => {
-    const job = await (await fetch('/api/search/' + payload.job_id)).json();
+    const job = await (await fetch('/api/search/' + JOB_ID)).json();
+
     (job.progress || []).slice(seen).forEach((entry) => {
       const line = document.createElement('div');
       line.textContent = entry.message;
@@ -343,151 +310,105 @@ async function runSearch() {
     seen = (job.progress || []).length;
     $('log').scrollTop = $('log').scrollHeight;
 
+    const companies = job.companies || [];
+    $('statCompanies').textContent = companies.length;
+    $('statContacts').textContent = companies
+      .reduce((total, c) => total + (c.contacts || []).filter((p) => p.email).length, 0);
+    $('statElapsed').textContent = Math.round((Date.now() - started) / 1000) + 's';
+
     if (job.status !== 'running') {
       clearInterval(timer);
       if (job.status === 'error') { finish(job.error); return; }
-      CURRENT = job.companies || [];
-      render(CURRENT, job.notes || []);
+      render(companies, job.notes || []);
       finish();
-      refreshSaved();
     }
   }, 1200);
 }
 
 function finish(error) {
-  $('go').disabled = false;
+  $('go').disabled = !META.can_search;
   $('go').textContent = 'Find companies';
+  $('progress').style.display = 'none';
   if (error) {
-    $('results').innerHTML = `<div class="empty">Search failed: ${escapeHtml(error)}</div>`;
+    $('results').innerHTML = `<div class="empty">${escapeHtml(error)}</div>`;
   }
 }
 
-function confidenceBadge(contact) {
+// Tiering is driven by the score, not by who supplied the address. Hunter
+// returning something at 74% is still a 74% address -- painting it green
+// because it came from an API is the exact misreading this is here to prevent.
+function tierOf(contact) {
   const score = contact.email_confidence || 0;
-  const status = contact.email_status || 'unchecked';
-  let cls = 'bad';
-  if (score >= 0.7) cls = 'good';
-  else if (score >= 0.4) cls = 'mid';
-  return `<span class="badge ${cls}">${Math.round(score * 100)}% · ${escapeHtml(status)}</span>`;
+  const basis = (contact.email_basis || '').toLowerCase();
+  if (score >= 0.85 || basis.includes('published on the company')) {
+    return { cls: 'tier-verified', label: 'Verified' };
+  }
+  if (score >= 0.55) {
+    return { cls: 'tier-derived', label: 'Probable' };
+  }
+  return { cls: 'tier-guess', label: 'Unconfirmed' };
 }
 
 function render(companies, notes) {
   $('notes').innerHTML = (notes || []).map((n) => `<div>${escapeHtml(n)}</div>`).join('');
 
-  if (!companies.length) {
-    $('results').innerHTML = '<div class="empty">No companies matched. Try a wider ' +
-      'radius, a broader field, or raise the employee ceiling.</div>';
+  const rows = [];
+  companies.forEach((company) => {
+    (company.contacts || []).forEach((contact) => rows.push({ company, contact }));
+  });
+
+  $('resultsTitle').textContent =
+    `Results — ${rows.length} contact${rows.length === 1 ? '' : 's'} at ${companies.length} compan${companies.length === 1 ? 'y' : 'ies'}`;
+  $('csv').disabled = rows.length === 0;
+
+  if (!rows.length) {
+    $('results').innerHTML = '<div class="empty">Nothing found. Try a wider field, ' +
+      'a bigger employee ceiling, or a different city.</div>';
     return;
   }
 
-  $('results').innerHTML = companies.map((company, ci) => {
-    const contacts = company.contacts || [];
-    const meta = [
-      company.address,
-      company.employee_count ? company.employee_count + ' employees' : company.size_note,
-      (company.sources || []).join(' + '),
-    ].filter(Boolean).join(' · ');
-
-    const people = contacts.length ? contacts.map((contact, pi) => `
-      <div class="contact">
-        <div>
-          <div class="who">${escapeHtml(contact.name)}
-            <span class="badge">${escapeHtml(contact.seniority || '')}</span></div>
-          <div class="title">${escapeHtml(contact.title || '')}</div>
-          ${contact.email ? `<div class="mail">${escapeHtml(contact.email)}</div>` : ''}
-          <div class="basis">${escapeHtml(contact.email_basis || 'no address found')}
-            ${contact.email ? confidenceBadge(contact) : ''}</div>
-        </div>
-        <div class="actions">
-          ${contact.email ? `<button class="tiny" onclick="copyText('${contact.email}')">Copy</button>` : ''}
-          ${contact.email ? `<button class="tiny" onclick="openDraft(${ci},${pi})">Draft email</button>` : ''}
-          ${contact.linkedin_url ? `<a class="tiny" href="${contact.linkedin_url}" target="_blank" rel="noopener"><button class="tiny">LinkedIn</button></a>` : ''}
-        </div>
-      </div>`).join('')
-      : `<div class="basis" style="margin-top:.6rem;color:var(--muted);font-size:.75rem">
-           No senior contacts found${company.crawl_error ? ' — ' + escapeHtml(company.crawl_error) : ''}.
-         </div>`;
-
-    return `<div class="company">
-      <div class="company-head">
-        <h3>${escapeHtml(company.name)}</h3>
-        ${company.website ? `<a href="${company.website}" target="_blank" rel="noopener">${escapeHtml(company.domain || '')}</a>` : ''}
-        ${company.email_pattern ? `<span class="badge good">pattern: ${escapeHtml(company.email_pattern)}</span>` : ''}
-      </div>
-      <div class="company-meta">${escapeHtml(meta)}</div>
-      ${people}
-    </div>`;
-  }).join('');
+  $('results').innerHTML = `
+    <table>
+      <thead><tr>
+        <th>Person</th><th>Company</th><th>Email</th><th>Confidence</th><th>Source</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(({ company, contact }) => {
+          const tier = tierOf(contact);
+          const pct = Math.round((contact.email_confidence || 0) * 100);
+          const url = company.website ||
+            (company.domain ? 'https://' + company.domain : null);
+          return `<tr>
+            <td>
+              <div class="who">${escapeHtml(contact.name)}</div>
+              <div class="role">${escapeHtml(contact.title || '')}</div>
+            </td>
+            <td class="co">
+              ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(company.name)}</a>`
+                    : escapeHtml(company.name)}
+              <div class="role">${escapeHtml(company.address || '')}</div>
+            </td>
+            <td>
+              <div class="mail">${escapeHtml(contact.email || '—')}
+                ${contact.email ? `<button onclick="copyText('${escapeHtml(contact.email)}')">copy</button>` : ''}
+              </div>
+              <div class="basis">${escapeHtml(contact.email_basis || '')}</div>
+            </td>
+            <td class="conf ${tier.cls}">
+              <div class="conf-top">
+                <span class="conf-num">${pct}%</span>
+                <span class="conf-label">${tier.label}</span>
+              </div>
+              <div class="conf-track"><i style="width:${Math.max(pct, 3)}%"></i></div>
+            </td>
+            <td class="src">${escapeHtml(contact.source || '')}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
 }
 
-function copyText(value) {
-  navigator.clipboard.writeText(value);
-}
-
-async function openDraft(companyIndex, personIndex) {
-  const company = CURRENT[companyIndex];
-  const contact = company.contacts[personIndex];
-  DRAFT_CONTACT = Object.assign({}, contact, {
-    company_name: company.name,
-    company_description: company.description,
-    company_industry: company.industry,
-  });
-  $('draftTo').textContent = `To ${contact.name} <${contact.email}>`;
-  await regenerateDraft();
-  $('draftDlg').showModal();
-}
-
-async function regenerateDraft() {
-  const response = await fetch('/api/draft', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contact: DRAFT_CONTACT, profile: saveProfile(), style: $('draftStyle').value,
-    }),
-  });
-  const drafted = await response.json();
-  $('draftSubject').value = drafted.subject;
-  $('draftBody').value = drafted.body;
-}
-
-function currentMailto() {
-  return 'mailto:' + encodeURIComponent(DRAFT_CONTACT.email) +
-    '?subject=' + encodeURIComponent($('draftSubject').value) +
-    '&body=' + encodeURIComponent($('draftBody').value);
-}
-
-async function refreshSaved() {
-  const { searches } = await (await fetch('/api/searches')).json();
-  if (!searches.length) { $('saved').innerHTML = '<div class="hint">Nothing saved yet.</div>'; return; }
-  $('saved').innerHTML = searches.slice(0, 8).map((search) => `
-    <div class="saved-item">
-      <a onclick="loadSaved(${search.id})">${escapeHtml(search.label)}</a>
-      <span class="hint">${search.company_count} co · ${search.contact_count} people</span>
-    </div>`).join('') +
-    `<div style="margin-top:.7rem"><a class="tiny" href="/api/export.csv" download>
-       <button class="tiny">Export all to CSV</button></a></div>`;
-}
-
-async function loadSaved(searchId) {
-  const search = await (await fetch('/api/searches/' + searchId)).json();
-  CURRENT = search.companies || [];
-  render(CURRENT, search.notes || []);
-}
-
-async function linkedinLookup() {
-  const url = $('liUrl').value.trim();
-  if (!url) return;
-  $('liOut').textContent = 'Looking up...';
-  const response = await fetch('/api/lookup/linkedin', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ linkedin_url: url }),
-  });
-  const result = await response.json();
-  if (!response.ok) { $('liOut').textContent = result.error; return; }
-  const addresses = (result.emails || []).map((e) => e.email);
-  $('liOut').innerHTML = addresses.length
-    ? `<strong>${escapeHtml(result.name || '')}</strong> — ${addresses.map(escapeHtml).join('<br>')}`
-    : 'No address found for that profile.';
-}
+function copyText(value) { navigator.clipboard.writeText(value); }
 
 function escapeHtml(value) {
   return String(value == null ? '' : value).replace(/[&<>"']/g,
@@ -495,20 +416,8 @@ function escapeHtml(value) {
 }
 
 $('go').addEventListener('click', runSearch);
-$('liGo').addEventListener('click', linkedinLookup);
-$('draftStyle').addEventListener('change', regenerateDraft);
-$('draftClose').addEventListener('click', () => $('draftDlg').close());
-$('draftCopy').addEventListener('click', () =>
-  copyText($('draftSubject').value + '\n\n' + $('draftBody').value));
-$('draftOpen').addEventListener('click', () => { window.location.href = currentMailto(); });
-$('draftSent').addEventListener('click', async () => {
-  if (DRAFT_CONTACT && DRAFT_CONTACT.id) {
-    await fetch('/api/contacts/' + DRAFT_CONTACT.id, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'contacted' }),
-    });
-  }
-  $('draftDlg').close();
+$('csv').addEventListener('click', () => {
+  if (JOB_ID) window.location = '/api/export.csv?job_id=' + encodeURIComponent(JOB_ID);
 });
 
 boot();

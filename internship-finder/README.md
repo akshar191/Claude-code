@@ -1,153 +1,173 @@
 # Internship Finder
 
-Find small companies in your field and city, figure out who's senior enough to
-say yes, and get an address you can actually email — then draft the email.
+Finds small companies in a given field and city, works out who's senior enough
+there to answer a cold email, and finds their email address — labelling every
+address with how confident it is and *why*.
 
-Built for the cold-outreach internship hunt: pick "Mechanical Engineering,
-Boston, under 200 people", get back a list of 10-15 real companies with named
-founders/VPs/directors and their email addresses, each labelled with how
-confident we are and *why*.
-
-```
-python app.py          # web UI at http://127.0.0.1:5001
-python cli.py --help   # same thing from the terminal
-python demo.py         # see the output format offline, no keys, no quota
-```
-
-## Why not just use Apollo/RocketReach
-
-You still can — this wraps both when you have keys. The difference:
-
-- **It runs with zero API keys.** The free path (OpenStreetMap + crawling the
-  company's own website) finds people and addresses without a subscription,
-  which matters when you and your friends are splitting one free tier.
-- **It filters for small.** The whole point is companies where a cold email
-  reaches a decision-maker, not a careers portal.
-- **It tells you when it's guessing.** A guessed address is labelled a guess
-  with a confidence number and the reasoning. Nothing is presented as verified
-  unless something actually verified it.
-- **It drafts the email**, personalised from what it read on their site.
-
-## How it works
-
-```
-criteria ──► company discovery ──► site crawl ──► people ──► emails ──► verify ──► draft
-             Apollo / Places /     team pages     name +     published    MX /      mailto
-             OpenStreetMap                        title      or inferred  Hunter
-```
-
-**1. Company discovery** (`finder/companies.py`) — runs every configured source
-and merges by domain:
-
-| Source | Key needed | What it's good for |
-|---|---|---|
-| Apollo | `APOLLO_API_KEY` | The only real employee-count filter |
-| Google Places | `GOOGLE_PLACES_API_KEY` | Much better recall for local businesses |
-| OpenStreetMap | none | Free; solid for engineering/architecture/manufacturing offices |
-
-**2. Finding people** (`finder/people.py`) — small companies list their
-leadership on their own site, so we fetch the homepage, follow links that look
-like `/team`, `/leadership`, `/about`, and pull out name + title pairs. Titles
-are ranked 1-5 (`finder/industries.py`) so you can say "director and above".
-
-**3. Finding addresses** (`finder/emails.py`) — in order of trustworthiness:
-
-1. Addresses published on the site (including Cloudflare-obfuscated ones).
-2. If a published address matches a person we found, we learn the company's
-   format — `priya.raghavan@` for Priya Raghavan means `{first}.{last}` — and
-   apply it to everyone else. Two agreeing samples gets you ~90% confidence.
-3. No pattern to learn from? Fall back to the frequency table of corporate
-   address formats. These are capped below 50% confidence on purpose.
-
-**4. Verification** (`finder/verify.py`) — syntax → MX record → Hunter's
-verifier (if keyed) → SMTP probe (off by default; see below). Anything not
-positively confirmed comes back `unknown`, never `valid`.
-
-**5. Outreach** (`finder/outreach.py`) — three angles: ask for advice (highest
-reply rate), ask about an internship directly, or a very short note. Tracks
-`new → queued → contacted → replied` per contact.
-
-## Setup
+Built for the student internship hunt, where the useful targets are 10–50 person
+companies whose founder reads their own inbox, and the hard part is getting from
+"this company looks interesting" to "here is a person and an address".
 
 ```bash
-pip install -r requirements.txt
-cp .env.example .env     # optional — every key in it is optional
-python app.py
+python app.py     # web UI
+python cli.py     # same thing, scriptable
+python demo.py    # offline demo, no keys, no network
 ```
 
-### On macOS
+## What problem it actually solves
 
-Use a virtualenv. Homebrew and system Python both refuse a bare `pip install`
-these days with `error: externally-managed-environment`:
+Commercial tools (Apollo, RocketReach, Hunter) will sell you contact data, but
+they are built for sales teams with budgets, and their free tiers are small.
+This does three things they don't:
+
+1. **Runs with no API keys at all.** The free path — OpenStreetMap for discovery
+   plus crawling each company's own site — finds people and addresses without a
+   subscription. Keys make it better; they aren't required.
+2. **Filters for small.** The entire point is companies where a cold email
+   reaches a decision-maker rather than an applicant-tracking system.
+3. **Never presents a guess as a fact.** Every address carries a confidence
+   score and a plain-English basis. A guessed address says so.
+
+## Architecture
+
+```
+        criteria (field, city, size, seniority)
+                        │
+        ┌───────────────▼────────────────┐
+        │  companies.discover()          │   Apollo ─┐
+        │  merge + dedupe by domain      │   Places ─┼─► one company list
+        └───────────────┬────────────────┘   OSM    ─┘
+                        │
+        ┌───────────────▼────────────────┐
+        │  per company, in a thread pool │
+        │                                │
+        │  people.from_website()   ──────┼──► crawl /team, /leadership, /about
+        │  people.from_providers() ──────┼──► Hunter domain-search, Apollo
+        │  emails.infer_pattern()  ──────┼──► learn {f}{last} from real data
+        │  providers.hunter_email_finder ┼──► ask Hunter about this person
+        │  verify.verify()         ──────┼──► syntax → MX → Hunter verifier
+        └───────────────┬────────────────┘
+                        │
+                  ranked contacts ──► SQLite ──► web UI / CSV
+```
+
+### Module map
+
+| File | Responsibility |
+|---|---|
+| `app.py` | Flask UI + JSON API, password gate, rate limits |
+| `cli.py` | Command-line entry point |
+| `finder/pipeline.py` | Orchestration; background jobs; per-run budgets |
+| `finder/companies.py` | Discovery, merging, size + directory filtering |
+| `finder/people.py` | Site crawl, name/title extraction, seniority |
+| `finder/emails.py` | Harvesting, pattern inference, candidate generation |
+| `finder/verify.py` | Syntax / MX / Hunter verifier / optional SMTP |
+| `finder/providers.py` | Hunter, Apollo, RocketReach, Google Places + caching |
+| `finder/store.py` | SQLite: searches, contacts, provider cache, rate limits |
+| `finder/industries.py` | Field taxonomy and the 1–5 seniority ladder |
+| `finder/outreach.py` | Email drafting |
+
+### How an address is obtained, best first
+
+1. **Published on the site.** Scraped from the company's own pages, including
+   Cloudflare-obfuscated `data-cfemail` attributes. ~95%.
+2. **Hunter, per person.** `email-finder` asked about that specific human.
+   Carries Hunter's own score.
+3. **Company pattern.** If a known address maps onto a person we found —
+   `priya.raghavan@` for Priya Raghavan — the format is `{first}.{last}`, and it
+   applies to everyone else at that domain. Hunter's reported `pattern` is used
+   the same way. ~75%.
+4. **Base-rate guessing.** "A third of companies use `first.last`." **Off by
+   default** (`--guess` to enable), because these bounce, and a bounce on a cold
+   introduction is worse than no address.
+
+Verification then runs syntax → MX → Hunter's verifier (budgeted) → optional
+SMTP probe. Anything not positively confirmed reports `unknown`, never `valid`.
+
+### Why the searches run in the background
+
+A search reads several pages per company at one request per second per host, so
+it takes a minute or more — longer than a platform will hold an HTTP request
+open. `POST /api/search` starts a worker thread and returns a job id;
+`GET /api/search/<id>` returns status, progress lines and partial results, and
+the page polls it.
+
+This is why the service runs **one gunicorn worker with threads**: the job
+registry lives in process memory, so a second worker wouldn't see jobs started
+by the first.
+
+## Cost control
+
+The free tiers are small (Hunter is 50 lookups/month), and this is deployed
+publicly, so spending is capped in several independent places:
+
+- **Provider cache** — Hunter `domain-search` and `email-finder` responses are
+  cached in SQLite for 30 days, so a repeated search costs nothing.
+- **Per-run budgets** — `HUNTER_FINDER_BUDGET` (6) per-person lookups and
+  `HUNTER_VERIFY_BUDGET` (10) verifications per search.
+- **Rate limits** — `DAILY_SEARCH_LIMIT` (5) per session *and* per IP, whichever
+  is stricter, so clearing cookies gains little.
+- **Hard cap** — `MAX_COMPANIES_PER_SEARCH` (5), enforced server-side.
+- **Quota gate** — when fewer than `MIN_QUOTA_TO_SEARCH` Hunter lookups remain,
+  the search button is disabled with an explanation.
+
+## Rules it follows
+
+- **robots.txt is honoured** on every company site.
+- **One request per host per second**, with an identifying User-Agent.
+- **No LinkedIn scraping.** Profile URLs go to RocketReach's API instead;
+  scraping LinkedIn breaks their terms and gets accounts banned.
+- **Directory sites are skipped.** An accelerator's website lists the founders
+  of *other* companies; scraping one invents contacts at an organisation that
+  never employed them.
+- **SMTP probing is off by default** — most networks block port 25, and
+  aggressive probing gets an IP blocklisted.
+- This is for sending individual, personal emails. Bulk-mailing scraped
+  addresses is a different activity with different laws around it.
+
+## Configuration
+
+Everything comes from environment variables; `.env` is read at startup and is
+gitignored. No key appears anywhere in the repository or its history.
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `APP_PASSWORD` | **yes** | Shared password. Unset ⇒ the app serves nothing |
+| `SECRET_KEY` | production | Signs the session cookie |
+| `HUNTER_API_KEY` | no | Email patterns and per-person lookups |
+| `GOOGLE_PLACES_API_KEY` | no | Much better company discovery than OSM alone |
+| `APOLLO_API_KEY` | no | The only source with a real headcount filter |
+| `ROCKETREACH_API_KEY` | no | LinkedIn URL → address |
+| `CONTACT_EMAIL` | no | Identifies the crawler to sites it reads |
+| `DAILY_SEARCH_LIMIT` | no | Default 5 |
+| `MAX_COMPANIES_PER_SEARCH` | no | Default 5 |
+
+## Local development
 
 ```bash
 cd internship-finder
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-python demo.py                                    # offline, proves it works
-python cli.py --location "Boston, MA" --companies 5   # the real thing
-python app.py                                     # web UI
+echo "APP_PASSWORD=whatever" > .env
+python app.py          # prints the URL it bound to
 ```
 
-Two Mac-specific things:
+On macOS, ports 5000/5001 belong to AirPlay Receiver; the server steps to the
+next free port and prints where it landed.
 
-- **Ports 5000 and 5001 are taken by AirPlay Receiver.** `app.py` steps forward
-  to the next free port and prints the URL it actually bound, so you don't need
-  to do anything — but that's why it may say 5002. To reclaim 5000/5001,
-  turn off System Settings → General → AirDrop & Handoff → AirPlay Receiver.
-- **Leave `ENABLE_SMTP_PROBE=false`.** Most home ISPs block outbound port 25,
-  so it will hang rather than verify. The MX check works fine regardless.
+## Deployment
 
-The UI's source chips show green for whatever's configured. With no keys at all
-you get OpenStreetMap + site crawling, which is enough to be useful.
+Runs on Render as a single web service; see `render.yaml`. The start command is:
 
-### Terminal
-
-```bash
-python cli.py --industry mechanical_engineering --location "Boston, MA" \
-              --max-employees 100 --companies 12 --min-seniority 3 --csv leads.csv
+```
+gunicorn app:app --workers 1 --threads 8 --timeout 180 --bind 0.0.0.0:$PORT
 ```
 
-Results are saved to SQLite (`finder.db`) either way, so the web UI and CLI
-share history. `GET /api/export.csv` exports everything.
-
-### LinkedIn URL → email
-
-The RocketReach flow you're used to is in the left sidebar and at
-`POST /api/lookup/linkedin`. It hands the URL to RocketReach's API — we don't
-fetch LinkedIn ourselves, because scraping it breaks their ToS and gets
-accounts banned. Paste profile URLs you found by hand; that's fine.
-
-## Reading the confidence numbers
-
-| What you see | What it means |
-|---|---|
-| ~95%, "published on the company's own website" | We literally read this address off their site |
-| 70-90%, "matches this company's known address format" | Built from a pattern proven by a real address at that domain |
-| under 50%, "common format" | A guess from base rates. Expect roughly one in three to bounce |
-| status `valid` | A mail server confirmed the mailbox |
-| status `unknown` | Domain accepts mail; the mailbox itself is unconfirmed |
-| status `risky` | Catch-all domain — it accepts everything, so acceptance proves nothing |
-
-If a guessed address bounces, try the `alternates` on that contact before giving
-up. A bounce is also information: it rules out a pattern.
-
-## Rules this follows
-
-- **robots.txt is honoured** on every company site (`RESPECT_ROBOTS=false` to
-  override — don't).
-- **One request per host per second** by default, with an identifying
-  User-Agent. Set `CONTACT_EMAIL` so sites can reach you.
-- **No LinkedIn scraping**, ever. API passthrough only.
-- **SMTP probing is off by default.** Most cloud and campus networks block
-  outbound port 25, and hammering mail servers with RCPT probes gets your IP
-  blocklisted. Only enable it from a residential connection.
-- **This is for you and your friends sending individual, personal emails.**
-  Bulk-mailing scraped addresses is a different activity with different laws
-  around it (CAN-SPAM, GDPR if you're mailing the EU). Ten thoughtful emails
-  beat two hundred templated ones for this anyway.
+**Known limitation:** on Render's free plan the filesystem is ephemeral, so
+SQLite resets on every deploy and restart. Saved searches, the provider cache
+and the rate-limit counters are all lost. Searching still works — the cache just
+starts cold, which costs Hunter credits. A persistent disk or Postgres fixes it.
 
 ## Tests
 
@@ -155,46 +175,16 @@ up. A bounce is also information: it rules out a pattern.
 python -m unittest discover -s tests
 ```
 
-49 tests, all offline. `test_finder.py` covers name/domain parsing, title
-ranking, people extraction, email harvesting and pattern inference, size
-filtering, drafting and storage. `test_integration.py` spins up a local fixture
-site and runs the whole pipeline against it — verifying the crawler follows the
-leadership link, obeys robots.txt, picks up the published address, learns
-`{first}.{last}` from it, and applies it to the other person on the page.
+118 tests, all offline.
 
-**Not tested live:** this was developed in a sandbox whose network policy blocks
-everything except package registries, so no real call to Nominatim, Overpass,
-Apollo, Hunter, RocketReach or Google Places has been made. The request/response
-shapes follow each provider's documented API, but expect to shake out small
-issues on your first real run — those calls are isolated in
-`finder/providers.py` and every one returns `(result, error)` rather than
-throwing, so a broken provider degrades the search instead of killing it.
+- `test_finder.py` — parsing, title ranking, pattern inference, size and
+  directory filtering, caching, drafting, storage.
+- `test_integration.py` — spins up a local fixture site and runs the whole
+  pipeline: follows the leadership link, obeys robots.txt, takes the published
+  address, learns the pattern, applies it to everyone else.
+- `test_app.py` — the password gate, rate limits, quota gate, CSV columns.
 
-## Layout
-
-```
-app.py                  Flask UI + JSON API
-cli.py                  command-line entry point
-demo.py                 offline run against local fixture sites
-finder/
-  config.py             env-driven settings
-  web.py                polite HTTP: robots.txt, per-host rate limiting
-  companies.py          discovery + merge + size filtering
-  people.py             site crawl, name/title extraction
-  emails.py             harvesting, pattern inference, candidate generation
-  verify.py             syntax / MX / Hunter / optional SMTP
-  providers.py          Hunter, Apollo, RocketReach, Google Places
-  pipeline.py           orchestration + background jobs
-  store.py              SQLite: searches, companies, contacts, outreach status
-  outreach.py           email drafting
-  industries.py         field taxonomy + seniority ladder
-templates/index.html    single-page UI
-tests/                  offline unit + integration tests
-```
-
-## Things worth adding next
-
-- Bounce feedback: mark a guess dead and re-rank the alternates automatically.
-- A "warm intro" pass — check whether anyone at the company shares your school.
-- Gmail API send + reply detection, instead of `mailto:` and manual status.
-- Per-domain crawl caching so re-running a search doesn't re-fetch every site.
+Most tests exist because something failed in a live run. `test_finder.py`
+contains the literal strings that broke it: `PhD CEO & Chairman`,
+`LEED AP BD+C President Boston`, `Supply Chain`, `M Dinne Flansbury`,
+`Welcoming Hiten Sonpal: RISE Robotics' New CEO`.

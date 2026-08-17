@@ -57,6 +57,13 @@ CREATE TABLE IF NOT EXISTS contacts (
     UNIQUE (company_id, name)
 );
 
+CREATE TABLE IF NOT EXISTS rate_limit (
+    bucket TEXT NOT NULL,
+    day    TEXT NOT NULL,
+    count  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (bucket, day)
+);
+
 CREATE TABLE IF NOT EXISTS provider_cache (
     key        TEXT PRIMARY KEY,
     payload    TEXT NOT NULL,
@@ -80,6 +87,29 @@ def connect():
 def init_db():
     with connect() as conn:
         conn.executescript(SCHEMA)
+
+
+def rate_count(bucket, day):
+    """How many searches this bucket (an IP, say) has run today."""
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT count FROM rate_limit WHERE bucket = ? AND day = ?", (bucket, day)
+        ).fetchone()
+    return row["count"] if row else 0
+
+
+def rate_increment(bucket, day):
+    """Count one search against a bucket and return the new total."""
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO rate_limit (bucket, day, count) VALUES (?,?,1) "
+            "ON CONFLICT(bucket, day) DO UPDATE SET count = count + 1",
+            (bucket, day),
+        )
+        row = conn.execute(
+            "SELECT count FROM rate_limit WHERE bucket = ? AND day = ?", (bucket, day)
+        ).fetchone()
+    return row["count"] if row else 1
 
 
 CACHE_TTL_SECONDS = 30 * 24 * 3600

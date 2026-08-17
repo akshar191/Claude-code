@@ -51,6 +51,23 @@ DB_PATH = os.environ.get(
     "DB_PATH", os.path.join(os.path.dirname(os.path.dirname(__file__)), "finder.db")
 )
 
+# --- Public deployment ------------------------------------------------------
+# Single shared password. There are no accounts; this only exists to keep
+# strangers from spending the API budget. Unset means the app refuses to serve.
+APP_PASSWORD = os.environ.get("APP_PASSWORD", "").strip()
+
+# Signs the session cookie. A random default means sessions do not survive a
+# restart, which is survivable but annoying -- set it in production.
+SECRET_KEY = os.environ.get("SECRET_KEY", "").strip() or os.urandom(32).hex()
+
+# Set automatically on Render; forces cookies to HTTPS only.
+IS_PRODUCTION = bool(os.environ.get("RENDER") or _flag("IS_PRODUCTION", False))
+
+DAILY_SEARCH_LIMIT = _num("DAILY_SEARCH_LIMIT", 5)
+MAX_COMPANIES_PER_SEARCH = _num("MAX_COMPANIES_PER_SEARCH", 5)
+# Below this many Hunter searches left, the UI stops offering to run one.
+MIN_QUOTA_TO_SEARCH = _num("MIN_QUOTA_TO_SEARCH", 5)
+
 
 def providers():
     """Which optional data sources are configured right now."""

@@ -1,0 +1,39 @@
+# Render blueprint. Point Render at this file and it creates the service with
+# the right build/start commands; you still paste the secret values yourself.
+#
+# One worker and threads, deliberately: searches run in background threads
+# inside the process and the job registry lives in memory, so a second worker
+# would not see jobs started by the first. Timeout is generous because a
+# search holds a thread for a minute or more.
+services:
+  - type: web
+    name: internship-finder
+    runtime: python
+    plan: free
+    rootDir: internship-finder
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 1 --threads 8 --timeout 180 --bind 0.0.0.0:$PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: SECRET_KEY
+        generateValue: true      # Render invents one and keeps it stable
+      - key: APP_PASSWORD
+        sync: false              # you type this in the dashboard
+      - key: HUNTER_API_KEY
+        sync: false
+      - key: GOOGLE_PLACES_API_KEY
+        sync: false
+      - key: CONTACT_EMAIL
+        sync: false
+      - key: DAILY_SEARCH_LIMIT
+        value: "5"
+      - key: MAX_COMPANIES_PER_SEARCH
+        value: "5"
+      - key: HUNTER_VERIFY_BUDGET
+        value: "10"
+      - key: HUNTER_FINDER_BUDGET
+        value: "6"
+      - key: ENABLE_SMTP_PROBE
+        value: "false"

@@ -1,8 +1,15 @@
 """Web UI + JSON API for the company/contact finder.
 
+Local:
     pip install -r requirements.txt
-    cp .env.example .env      # optional -- it runs with no keys at all
-    python app.py             # http://127.0.0.1:5001
+    cp .env.example .env && edit it     # APP_PASSWORD is required
+    python app.py                       # http://127.0.0.1:5001
+
+Production (Render): gunicorn app:app -- see README.
+
+Searches take a minute or more, which is longer than a platform will hold an
+HTTP request open, so /api/search starts a background job and returns an id
+that the page polls.
 """
 
 from finder.dotenv import load as load_env
@@ -10,10 +17,23 @@ from finder.dotenv import load as load_env
 load_env()  # must run before finder.config reads the environment
 
 import csv  # noqa: E402
+import datetime  # noqa: E402
+import functools  # noqa: E402
 import io  # noqa: E402
+import secrets  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
 
-from flask import Flask, jsonify, render_template, request, Response  # noqa: E402
-from flask_cors import CORS  # noqa: E402
+from flask import (  # noqa: E402
+    Flask,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    Response,
+    session,
+    url_for,
+)
 
 from finder import (  # noqa: E402
     config,
@@ -26,17 +46,169 @@ from finder import (  # noqa: E402
 )
 
 app = Flask(__name__)
-CORS(app)
+app.secret_key = config.SECRET_KEY
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=config.IS_PRODUCTION,
+    PERMANENT_SESSION_LIFETIME=datetime.timedelta(days=7),
+)
 store.init_db()
 
 
+# --------------------------------------------------------------------------
+# Auth: one shared password, no accounts. Fails closed when unconfigured.
+# --------------------------------------------------------------------------
+
+
+def login_required(view):
+    @functools.wraps(view)
+    def wrapped(*args, **kwargs):
+        if not config.APP_PASSWORD:
+            message = "APP_PASSWORD is not set, so the app is refusing to serve."
+            if request.path.startswith("/api/"):
+                return jsonify({"error": message}), 503
+            return render_template("login.html", error=message, locked=True), 503
+        if not session.get("authed"):
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "not signed in"}), 401
+            return redirect(url_for("login", next=request.path))
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if not config.APP_PASSWORD:
+        return render_template(
+            "login.html",
+            error="APP_PASSWORD is not set on the server.",
+            locked=True,
+        ), 503
+
+    error = None
+    if request.method == "POST":
+        supplied = (request.form.get("password") or "").encode()
+        # compare_digest so a wrong password takes the same time as a right one.
+        if secrets.compare_digest(supplied, config.APP_PASSWORD.encode()):
+            session.clear()
+            session["authed"] = True
+            session["sid"] = secrets.token_hex(8)
+            session.permanent = True
+            return redirect(request.args.get("next") or url_for("index"))
+        error = "That password is not right."
+        time.sleep(1)  # take the edge off guessing
+
+    return render_template("login.html", error=error, locked=False)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
+# --------------------------------------------------------------------------
+# Rate limiting: per browser session and per IP, whichever is stricter
+# --------------------------------------------------------------------------
+
+
+def _today():
+    return datetime.date.today().isoformat()
+
+
+def _client_ip():
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    return (forwarded.split(",")[0].strip() or request.remote_addr or "unknown")
+
+
+def searches_used():
+    """Highest of the session and IP counters, so clearing cookies gains little."""
+    today = _today()
+    by_session = (session.get("searches") or {}).get(today, 0)
+    by_ip = store.rate_count("ip:%s" % _client_ip(), today)
+    return max(by_session, by_ip)
+
+
+def count_search():
+    today = _today()
+    counts = session.get("searches") or {}
+    counts = {today: counts.get(today, 0) + 1}  # only today's count is worth keeping
+    session["searches"] = counts
+    store.rate_increment("ip:%s" % _client_ip(), today)
+
+
+_quota_cache = {"at": 0.0, "value": None}
+_quota_lock = threading.Lock()
+
+
+def hunter_quota(max_age=120):
+    """Remaining Hunter allowance, cached briefly so page loads are cheap."""
+    with _quota_lock:
+        if _quota_cache["value"] and (time.time() - _quota_cache["at"]) < max_age:
+            return _quota_cache["value"]
+
+    quota, error = providers.hunter_account()
+    if error:
+        result = {"configured": bool(config.HUNTER_API_KEY), "error": error}
+    else:
+        used = quota.get("searches_used") or 0
+        available = quota.get("searches_available") or 0
+        result = {
+            "configured": True,
+            "used": used,
+            "available": available,
+            "remaining": max(0, available - used),
+            "resets": quota.get("reset_date"),
+            "plan": quota.get("plan"),
+        }
+
+    with _quota_lock:
+        _quota_cache.update(at=time.time(), value=result)
+    return result
+
+
+def search_allowed():
+    """(allowed, reason) for whether a new search may start right now."""
+    remaining = config.DAILY_SEARCH_LIMIT - searches_used()
+    if remaining <= 0:
+        return False, "Daily limit reached (%d searches). Try again tomorrow." % (
+            config.DAILY_SEARCH_LIMIT,
+        )
+
+    quota = hunter_quota()
+    if quota.get("configured") and "remaining" in quota:
+        if quota["remaining"] < config.MIN_QUOTA_TO_SEARCH:
+            return False, (
+                "Only %d Hunter lookups left this month (resets %s). Searching is "
+                "paused so the remaining credits are not spent by accident."
+                % (quota["remaining"], quota.get("resets") or "soon")
+            )
+    return True, None
+
+
+# --------------------------------------------------------------------------
+# Pages
+# --------------------------------------------------------------------------
+
+
 @app.route("/")
+@login_required
 def index():
     return render_template("index.html")
 
 
+@app.route("/healthz")
+def healthz():
+    """Unauthenticated, so the platform can health-check the service."""
+    return jsonify({"ok": True})
+
+
 @app.route("/api/meta")
+@login_required
 def meta():
+    allowed, reason = search_allowed()
     return jsonify(
         {
             "industries": industries.choices(),
@@ -47,21 +219,42 @@ def meta():
             ],
             "providers": config.providers(),
             "draft_styles": [{"value": k, "label": v} for k, v in outreach.STYLES.items()],
-            "defaults": pipeline.DEFAULTS,
+            "quota": hunter_quota(),
+            "limits": {
+                "max_companies": config.MAX_COMPANIES_PER_SEARCH,
+                "daily_searches": config.DAILY_SEARCH_LIMIT,
+                "searches_used_today": searches_used(),
+            },
+            "can_search": allowed,
+            "blocked_reason": reason,
         }
     )
 
 
 @app.route("/api/search", methods=["POST"])
+@login_required
 def start_search():
+    allowed, reason = search_allowed()
+    if not allowed:
+        return jsonify({"error": reason}), 429
+
     payload = request.get_json(silent=True) or {}
     if not payload.get("location") and not payload.get("keyword"):
         return jsonify({"error": "Give me at least a location or a keyword."}), 400
+
+    # Hard cap regardless of what the client sends.
+    payload["max_companies"] = min(
+        int(payload.get("max_companies") or config.MAX_COMPANIES_PER_SEARCH),
+        config.MAX_COMPANIES_PER_SEARCH,
+    )
+
+    count_search()
     job_id = pipeline.start(payload, label=payload.get("label"))
-    return jsonify({"job_id": job_id}), 202
+    return jsonify({"job_id": job_id, "searches_used_today": searches_used()}), 202
 
 
 @app.route("/api/search/<job_id>")
+@login_required
 def search_status(job_id):
     job = pipeline.get(job_id)
     if not job:
@@ -70,11 +263,13 @@ def search_status(job_id):
 
 
 @app.route("/api/searches")
+@login_required
 def saved_searches():
     return jsonify({"searches": store.list_searches()})
 
 
 @app.route("/api/searches/<int:search_id>")
+@login_required
 def saved_search(search_id):
     search = store.get_search(search_id)
     if not search:
@@ -82,12 +277,8 @@ def saved_search(search_id):
     return jsonify(search)
 
 
-@app.route("/api/searches/<int:search_id>", methods=["DELETE"])
-def remove_search(search_id):
-    return jsonify({"deleted": store.delete_search(search_id)})
-
-
 @app.route("/api/contacts/<int:contact_id>", methods=["POST"])
+@login_required
 def update_contact(contact_id):
     payload = request.get_json(silent=True) or {}
     try:
@@ -100,6 +291,7 @@ def update_contact(contact_id):
 
 
 @app.route("/api/draft", methods=["POST"])
+@login_required
 def draft_email():
     payload = request.get_json(silent=True) or {}
     contact = payload.get("contact")
@@ -114,6 +306,7 @@ def draft_email():
 
 
 @app.route("/api/verify", methods=["POST"])
+@login_required
 def verify_email():
     payload = request.get_json(silent=True) or {}
     email = (payload.get("email") or "").strip()
@@ -123,6 +316,7 @@ def verify_email():
 
 
 @app.route("/api/lookup/linkedin", methods=["POST"])
+@login_required
 def lookup_linkedin():
     """RocketReach passthrough: profile URL in, address out.
 
@@ -138,22 +332,80 @@ def lookup_linkedin():
     if error:
         status = 400 if error == "not configured" else 502
         message = (
-            "Set ROCKETREACH_API_KEY in .env to use this."
+            "Set ROCKETREACH_API_KEY to use this."
             if error == "not configured" else error
         )
         return jsonify({"error": message}), status
     return jsonify(result)
 
 
+CSV_COLUMNS = [
+    "name", "title", "company", "email", "confidence", "source", "company_url",
+    "email_status", "how_we_got_it", "seniority", "linkedin", "company_location",
+    "contacted_on", "replied", "notes",
+]
+
+
+def _csv_rows_from_job(job):
+    rows = []
+    for company in job.get("companies") or []:
+        for contact in company.get("contacts") or []:
+            rows.append({
+                "name": contact.get("name"),
+                "title": contact.get("title"),
+                "company": company.get("name"),
+                "email": contact.get("email"),
+                "confidence": contact.get("email_confidence"),
+                "source": contact.get("source"),
+                "company_url": company.get("website") or (
+                    "https://%s" % company["domain"] if company.get("domain") else ""),
+                "email_status": contact.get("email_status"),
+                "how_we_got_it": contact.get("email_basis"),
+                "seniority": contact.get("seniority"),
+                "linkedin": contact.get("linkedin_url"),
+                "company_location": company.get("address"),
+                "contacted_on": "",
+                "replied": "",
+                "notes": "",
+            })
+    return rows
+
+
 @app.route("/api/export.csv")
+@login_required
 def export_csv():
+    """CSV for one finished job, one saved search, or everything stored."""
+    rows = []
+    job_id = request.args.get("job_id")
     search_id = request.args.get("search_id", type=int)
-    rows = store.export_rows(search_id)
-    if not rows:
-        return Response("no results yet\n", mimetype="text/csv")
+
+    if job_id:
+        job = pipeline.get(job_id)
+        if not job:
+            return jsonify({"error": "unknown job"}), 404
+        rows = _csv_rows_from_job(job)
+    else:
+        for row in store.export_rows(search_id):
+            rows.append({
+                "name": row.get("name"),
+                "title": row.get("title"),
+                "company": row.get("company"),
+                "email": row.get("email"),
+                "confidence": row.get("email_confidence"),
+                "source": row.get("source"),
+                "company_url": row.get("website") or "",
+                "email_status": row.get("email_status"),
+                "how_we_got_it": row.get("email_basis"),
+                "seniority": row.get("seniority"),
+                "linkedin": row.get("linkedin_url"),
+                "company_location": row.get("address"),
+                "contacted_on": "",
+                "replied": "",
+                "notes": row.get("notes") or "",
+            })
 
     buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=list(rows[0].keys()))
+    writer = csv.DictWriter(buffer, fieldnames=CSV_COLUMNS, extrasaction="ignore")
     writer.writeheader()
     writer.writerows(rows)
     return Response(
@@ -191,6 +443,9 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", 5001)))
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
+
+    if not config.APP_PASSWORD:
+        print("WARNING: APP_PASSWORD is not set -- the app will refuse every request.")
 
     port = free_port(args.host, args.port)
     if port != args.port:

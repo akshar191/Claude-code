@@ -19,10 +19,16 @@ PLACES_SEARCH = "https://places.googleapis.com/v1/places:searchText"
 # --------------------------------------------------------------------------
 
 
-def hunter_domain_search(domain, limit=25):
-    """Known emails at a domain plus the domain's detected email pattern."""
+def hunter_domain_search(domain, limit=10):
+    """Known emails at a domain plus the domain's detected email pattern.
+
+    limit must stay <= 10: the free plan rejects anything larger with a 400
+    pagination_error, which fails the whole call -- including the pattern,
+    which is the part we actually care about.
+    """
     if not config.HUNTER_API_KEY:
         return None, "not configured"
+    limit = max(1, min(int(limit), 10))
 
     payload, error = web.api(
         "GET",

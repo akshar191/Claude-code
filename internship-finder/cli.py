@@ -31,6 +31,11 @@ def main(argv=None):
     parser.add_argument("--companies", type=int, default=10)
     parser.add_argument("--per-company", type=int, default=3)
     parser.add_argument("--no-verify", action="store_true")
+    parser.add_argument("--guess", action="store_true",
+                        help="also emit base-rate guesses (first.last@) when Hunter "
+                             "has nothing. Off by default -- these bounce")
+    parser.add_argument("--no-lookup", action="store_true",
+                        help="skip the per-person Hunter lookup (saves credits)")
     parser.add_argument("--csv", help="also write results to this file")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args(argv)
@@ -50,6 +55,8 @@ def main(argv=None):
         "contacts_per_company": args.per_company,
         "radius_m": args.radius_km * 1000,
         "verify_emails": not args.no_verify,
+        "guess_emails": args.guess,
+        "lookup_people": not args.no_lookup,
     }
 
     def progress(message):

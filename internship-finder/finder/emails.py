@@ -186,9 +186,17 @@ def infer_pattern(known_people, domain):
     return pattern, round(confidence, 2), total
 
 
-def candidates(first, last, domain, pattern=None, pattern_confidence=0.0, limit=4):
-    """Ranked guesses for one person's address at one domain."""
+def candidates(first, last, domain, pattern=None, pattern_confidence=0.0, limit=4,
+               allow_priors=True):
+    """Ranked guesses for one person's address at one domain.
+
+    With allow_priors=False the only address produced is one built from a
+    pattern we have actual evidence for. Base-rate guessing ("most companies
+    use first.last") is skipped entirely -- those are the addresses that bounce.
+    """
     if not domain or not text.is_company_domain(domain):
+        return []
+    if not pattern and not allow_priors:
         return []
 
     ranked = []
@@ -206,6 +214,9 @@ def candidates(first, last, domain, pattern=None, pattern_confidence=0.0, limit=
                 }
             )
             seen.add(local)
+
+    if not allow_priors:
+        return ranked[:limit]
 
     for candidate_pattern, prior in PATTERN_PRIORS:
         if len(ranked) >= limit:

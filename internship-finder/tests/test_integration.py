@@ -126,8 +126,23 @@ class Pipeline(unittest.TestCase):
             self.contacts["Priya Raghavan"]["email_confidence"],
         )
 
-    def test_offers_alternate_spellings_for_guesses(self):
-        self.assertTrue(self.contacts["Daniel O'Brien"]["alternates"])
+    def test_no_alternates_unless_guessing_is_enabled(self):
+        # Default is one pattern-backed address, not a spread of guesses.
+        self.assertEqual(self.contacts["Daniel O'Brien"]["alternates"], [])
+
+    def test_alternates_come_back_when_guessing_is_asked_for(self):
+        company = pipeline.process_company(
+            {
+                "name": "Acme Robotics",
+                "domain": "acmerobotics.test",
+                "website": "http://127.0.0.1:%d/" % self.port,
+                "source": "openstreetmap",
+            },
+            pipeline.normalize({"min_seniority": 3, "verify_emails": False,
+                                "guess_emails": True}),
+        )
+        daniel = {c["name"]: c for c in company["contacts"]}["Daniel O'Brien"]
+        self.assertTrue(daniel["alternates"])
 
     def test_collects_published_shared_inboxes(self):
         self.assertIn("jobs@acmerobotics.test", self.company["published_emails"])

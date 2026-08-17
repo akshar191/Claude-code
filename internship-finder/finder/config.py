@@ -38,6 +38,11 @@ RESPECT_ROBOTS = _flag("RESPECT_ROBOTS", True)
 # Cap how many a single search may spend so one run cannot drain the month.
 HUNTER_VERIFY_BUDGET = _num("HUNTER_VERIFY_BUDGET", 10)
 
+# Per-person Hunter lookups (email-finder). These are the highest-quality
+# addresses available, and each one costs a search credit, so they are budgeted
+# separately and spent on the most senior people first.
+HUNTER_FINDER_BUDGET = _num("HUNTER_FINDER_BUDGET", 6)
+
 ENABLE_SMTP_PROBE = _flag("ENABLE_SMTP_PROBE", False)
 SMTP_FROM = os.environ.get("SMTP_FROM", "verify@example.com").strip()
 SMTP_TIMEOUT = _num("SMTP_TIMEOUT", 8.0)

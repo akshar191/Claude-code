@@ -101,6 +101,13 @@ _NOT_NAME_WORDS = {
     "email", "phone", "call", "click", "here", "sign", "log", "search", "menu",
     "skip", "content", "next", "previous", "page", "case", "study", "studies",
     "project", "projects", "client", "clients", "work", "portfolio", "let",
+    # Department and function names that read as two capitalised words and get
+    # mistaken for people: "Supply Chain", "Human Resources", "Facilities
+    # Management".
+    "supply", "chain", "human", "resources", "operations", "quality", "assurance",
+    "facilities", "management", "business", "development", "customer", "success",
+    "field", "logistics", "procurement", "compliance", "safety", "environmental",
+    "information", "corporate", "communications", "administration", "finance",
     "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
     "january", "february", "march", "april", "may", "june", "july", "august",
     "september", "october", "november", "december",

@@ -163,6 +163,63 @@ class DepartmentsAreNotPeople(unittest.TestCase):
         self.assertEqual([p["name"] for p in found], ["Sofia Marino"])
 
 
+class NoBlindGuessing(unittest.TestCase):
+    """The point of the tool is addresses worth sending to, not plausible ones."""
+
+    def test_suppresses_base_rate_guesses(self):
+        self.assertEqual(
+            emails.candidates("Marcus", "Webb", "acme.com", allow_priors=False), []
+        )
+
+    def test_still_builds_from_a_real_pattern(self):
+        built = emails.candidates("Alex", "Vanderweil", "vanderweil.com",
+                                  pattern="{f}{last}", pattern_confidence=0.85,
+                                  allow_priors=False)
+        self.assertEqual([c["email"] for c in built], ["avanderweil@vanderweil.com"])
+
+    def test_offers_alternates_only_when_guessing_is_allowed(self):
+        self.assertGreater(
+            len(emails.candidates("Alex", "Vanderweil", "vanderweil.com",
+                                  pattern="{f}{last}", allow_priors=True)),
+            1,
+        )
+
+
+class ProviderPatternsDoNotCrash(unittest.TestCase):
+    """A pattern Hunter sends that we do not understand must not take the
+    company's whole contact list down with it."""
+
+    def test_middle_initial_collapses_instead_of_raising(self):
+        self.assertEqual(emails.render("{f}{m}{last}", "Alex", "Vanderweil"),
+                         "avanderweil")
+        self.assertEqual(emails.render("{first}.{m}.{last}", "Alex", "Vanderweil"),
+                         "alex.vanderweil")
+
+    def test_uses_the_middle_initial_when_we_have_one(self):
+        self.assertEqual(emails.render("{f}{m}{last}", "Alex", "Vanderweil", middle="Jay"),
+                         "ajvanderweil")
+
+    def test_unknown_placeholder_returns_none(self):
+        self.assertIsNone(emails.render("{nickname}.{last}", "Alex", "Vanderweil"))
+
+
+class DepartmentNamesRejected(unittest.TestCase):
+    """roboticstechno.com produced 'Supply Chain -- Principal Engineer'."""
+
+    def test_rejects_department_style_names(self):
+        for heading in ("Supply Chain", "Human Resources", "Business Development",
+                        "Quality Assurance"):
+            html = "<html><body><div><h3>%s</h3><p>Principal Engineer</p></div></body></html>" % heading
+            found, _ = people.extract_people(html)
+            self.assertEqual(found, [], "accepted %r as a person" % heading)
+
+    def test_still_accepts_a_real_person_with_that_title(self):
+        html = """<html><body><div><h3>Marcus Webb</h3>
+                  <p>Principal Engineer</p></div></body></html>"""
+        found, _ = people.extract_people(html)
+        self.assertEqual([p["name"] for p in found], ["Marcus Webb"])
+
+
 class ProviderProblemsSurface(unittest.TestCase):
     """A rejected API key must not look like 'this company has no staff'."""
 

@@ -10,7 +10,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from . import companies as companies_mod
-from . import emails, industries, people as people_mod, store, text, verify
+from . import config, emails, industries, people as people_mod, providers, store, text, verify
 
 DEFAULTS = {
     "industry": "other",
@@ -24,7 +24,28 @@ DEFAULTS = {
     "radius_m": 40000,
     "verify_emails": True,
     "include_general_inbox": True,
+    # Ask Hunter for each senior person by name. Costs a credit per lookup and
+    # returns the best addresses available, so it is on by default when a key
+    # is configured.
+    "lookup_people": True,
+    # Base-rate guessing ("most companies use first.last"). Off by default:
+    # those addresses bounce, and a bounce on a cold email is worse than no
+    # email at all.
+    "guess_emails": False,
 }
+
+_finder_lock = threading.Lock()
+_finder_calls = 0
+
+
+def _claim_finder_call():
+    """Spend one Hunter per-person lookup, or refuse if this run is out."""
+    global _finder_calls
+    with _finder_lock:
+        if _finder_calls >= config.HUNTER_FINDER_BUDGET:
+            return False
+        _finder_calls += 1
+        return True
 
 
 def normalize(criteria):
@@ -153,6 +174,22 @@ def process_company(company, criteria, on_progress=None):
 
     for person in staff:
         person["seniority"] = industries.SENIORITY_LABELS.get(person.get("rank") or 0)
+
+        # Ask Hunter for this specific person before falling back to any guess.
+        if (not person.get("email") and criteria.get("lookup_people")
+                and config.HUNTER_API_KEY and person.get("first_name")
+                and person.get("last_name") and _claim_finder_call()):
+            found, error = providers.hunter_email_finder(
+                company.get("domain"), person["first_name"], person["last_name"]
+            )
+            if found and found.get("email"):
+                person["email"] = found["email"]
+                person["email_confidence"] = (found.get("confidence") or 80) / 100.0
+                person["email_basis"] = "found by Hunter for this person"
+                person["source"] = "%s+hunter" % (person.get("source") or "")
+            elif error and error not in ("not configured", "no match"):
+                company.setdefault("notes", []).append("Hunter finder: %s" % error)
+
         if not person.get("email"):
             guesses = emails.candidates(
                 person.get("first_name"),
@@ -160,6 +197,7 @@ def process_company(company, criteria, on_progress=None):
                 company.get("domain"),
                 pattern=pattern,
                 pattern_confidence=pattern_confidence,
+                allow_priors=bool(criteria.get("guess_emails")),
             )
             if guesses:
                 person["email"] = guesses[0]["email"]
@@ -212,6 +250,8 @@ def run(criteria, on_progress=None):
     """Full search. Returns (companies, notes)."""
     criteria = normalize(criteria)
     verify.reset_budget()
+    global _finder_calls
+    _finder_calls = 0
     found, notes = companies_mod.discover(criteria, on_progress=on_progress)
     shortlist = found[: criteria["max_companies"]]
 

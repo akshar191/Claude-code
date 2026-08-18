@@ -390,12 +390,21 @@ def research_and_draft():
             contact, company, found, payload.get("profile")
         )
     except outreach.ResearchFailed as failure:
-        # Refuse rather than hand back a generic email dressed as a personal one.
+        # Refuse rather than hand back something not worth sending: no specific
+        # detail, an unreliable greeting, or a draft that came out broken.
+        headline = {
+            "name": "The contact's first name does not look trustworthy.",
+            "grammar": "The draft came out malformed, so it was thrown away.",
+        }.get(failure.kind,
+              "Could not find anything specific to say about %s."
+              % (company.get("name") or "this company"))
+        log.info("draft refused (%s) for %s: %s",
+                 failure.kind, company.get("domain"), failure.reason)
         return jsonify({
-            "error": "Could not find anything specific to say about %s."
-                     % (company.get("name") or "this company"),
+            "error": headline,
             "reason": failure.reason,
-            "diagnostics": found.get("diagnostics") or {},
+            "kind": failure.kind,
+            "diagnostics": dict(found.get("diagnostics") or {}, **failure.diagnostics),
             "pages_read": found.get("pages") or [],
             "research_failed": True,
         }), 422

@@ -23,6 +23,7 @@ config.DB_PATH = os.path.join(tempfile.mkdtemp(), "drafting.db")
 config.CRAWL_DELAY = 0.0
 
 from finder import gmail, outreach, research  # noqa: E402
+from finder import text as text_module  # noqa: E402
 
 SITE = {
     "/robots.txt": "User-agent: *\nAllow: /\n",
@@ -305,6 +306,163 @@ class InternshipDraft(unittest.TestCase):
 
     def test_marks_a_clean_rephrase_as_normalised(self):
         self.assertTrue(self.draft()["reference_normalised"])
+
+
+class GreetingNameGate(unittest.TestCase):
+    """A real BCA draft opened "Hi M Dinne," -- a parsing artifact, not a name."""
+
+    def setUp(self):
+        self.company = {"name": "BCA Robotics", "domain": "bca.test"}
+        self.research = {
+            "details": [{"text": "We build automated packaging systems for food plants.",
+                         "url": "https://bca.test/"}], "pages": []}
+
+    def draft_for(self, contact):
+        return outreach.internship_draft(contact, self.company, self.research,
+                                         {"name": "Akshar Pathak"})
+
+    def test_refuses_an_initial_joined_to_a_name(self):
+        with self.assertRaises(outreach.NameUnreliable) as caught:
+            self.draft_for({"name": "M. Dinne Flansbury", "first_name": "M Dinne",
+                            "rank": 5})
+        self.assertIn("M Dinne", caught.exception.reason)
+        self.assertEqual(caught.exception.kind, "name")
+
+    def test_refuses_a_bare_initial(self):
+        for bad in ("M", "M.", "J"):
+            with self.assertRaises(outreach.NameUnreliable):
+                self.draft_for({"name": "%s Flansbury" % bad, "first_name": bad,
+                                "rank": 5})
+
+    def test_refuses_a_two_character_name(self):
+        with self.assertRaises(outreach.NameUnreliable):
+            self.draft_for({"name": "Al Smith", "first_name": "Al", "rank": 5})
+
+    def test_never_guesses_a_greeting(self):
+        with self.assertRaises(outreach.NameUnreliable):
+            self.draft_for({"name": "Flansbury", "rank": 5})
+
+    def test_accepts_an_ordinary_first_name(self):
+        drafted = self.draft_for({"name": "Dave Johnson", "first_name": "Dave",
+                                  "rank": 5})
+        self.assertIn("Hi Dave,", drafted["body"])
+
+    def test_accepts_a_hyphenated_name(self):
+        drafted = self.draft_for({"name": "Jean-Luc Picard",
+                                  "first_name": "Jean-Luc", "rank": 5})
+        self.assertIn("Hi Jean-Luc,", drafted["body"])
+
+    def test_parses_a_middle_initial_correctly(self):
+        # The underlying parse should keep the real first name.
+        self.assertEqual(text_module.split_name("M. Dianne Flansbury"),
+                         ("Dianne", "Flansbury"))
+
+
+class CapabilityLists(unittest.TestCase):
+    """The BCA draft said "your work on the in-house capabilities include ..."."""
+
+    LIST = ("Our in-house capabilities include mechanical engineering, controls "
+            "integration, stainless steel fabrication, sanitary design, machining, "
+            "assembly, and testing.")
+
+    def test_research_rejects_a_capability_list(self):
+        score, why = research._score(self.LIST)
+        self.assertEqual(score, 0)
+        self.assertIn("capability list", why)
+
+    def test_phrase_gate_rejects_the_fragment(self):
+        phrase, _ = outreach.reference_phrase(self.LIST)
+        self.assertIsNotNone(outreach.phrase_problem(phrase))
+
+    def test_draft_refuses_rather_than_using_it(self):
+        with self.assertRaises(outreach.ResearchFailed):
+            outreach.internship_draft(
+                {"name": "Dave Johnson", "first_name": "Dave", "rank": 5},
+                {"name": "BCA", "domain": "bca.test"},
+                {"details": [{"text": self.LIST, "url": "https://bca.test/"}]},
+                {"name": "Akshar Pathak"})
+
+    def test_falls_through_to_a_usable_second_detail(self):
+        drafted = outreach.internship_draft(
+            {"name": "Dave Johnson", "first_name": "Dave", "rank": 5},
+            {"name": "BCA", "domain": "bca.test"},
+            {"details": [
+                {"text": self.LIST, "url": "https://bca.test/a"},
+                {"text": "We build automated packaging systems for food plants.",
+                 "url": "https://bca.test/b"}]},
+            {"name": "Akshar Pathak"})
+        self.assertIn("automated packaging systems", drafted["body"])
+        self.assertEqual(drafted["source_url"], "https://bca.test/b")
+
+    def test_rejects_a_truncated_phrase(self):
+        self.assertIn("truncated", outreach.phrase_problem(
+            "the in-house capabilities include mechanical engineering, and…"))
+
+    def test_rejects_a_phrase_ending_mid_thought(self):
+        self.assertIn("mid-thought",
+                      outreach.phrase_problem("automated packaging systems and"))
+
+
+class DraftGrammarGuard(unittest.TestCase):
+    """Nothing malformed leaves the drafter, whatever produced it."""
+
+    GOOD = ("Hi Dave,\n\nI'm Akshar Pathak, a high school junior in Ashland, MA.\n\n"
+            "What interests me about BCA is your work on automated packaging "
+            "systems. I'd like to understand how that gets built.\n\n"
+            "Thanks for reading,\nAkshar Pathak")
+
+    def test_accepts_a_well_formed_draft(self):
+        self.assertIsNone(outreach.draft_problem(self.GOOD))
+
+    def test_rejects_an_ellipsis(self):
+        broken = self.GOOD.replace("packaging systems.", "packaging systems and…")
+        self.assertIn("ellipsis", outreach.draft_problem(broken))
+
+    def test_rejects_a_doubled_preposition(self):
+        broken = self.GOOD.replace("your work on automated",
+                                   "your work on on automated")
+        self.assertIn("doubled", outreach.draft_problem(broken))
+
+    def test_rejects_an_unfilled_template_seam(self):
+        broken = self.GOOD.replace("Akshar Pathak", "{student}")
+        self.assertIn("seam", outreach.draft_problem(broken))
+
+    def test_rejects_a_sentence_with_no_terminator(self):
+        broken = self.GOOD.replace("systems. I'd", "systems I'd").replace(
+            "gets built.", "gets built")
+        self.assertIsNotNone(outreach.draft_problem(broken))
+
+    def test_a_broken_draft_raises_instead_of_returning(self):
+        """A bad value anywhere -- here in the profile -- stops the draft."""
+        with self.assertRaises(outreach.DraftInvalid) as caught:
+            outreach.internship_draft(
+                {"name": "Dave Johnson", "first_name": "Dave", "rank": 5},
+                {"name": "BCA", "domain": "bca.test"},
+                {"details": [{"text": "We build automated packaging systems.",
+                              "url": "https://bca.test/"}]},
+                {"name": "Akshar Pathak",
+                 "work": "an intern doing assembly work on…"})
+        self.assertEqual(caught.exception.kind, "grammar")
+        self.assertIn("ellipsis", caught.exception.reason)
+
+
+class CurrentWorkWording(unittest.TestCase):
+    def test_does_not_call_the_current_role_an_internship(self):
+        drafted = outreach.internship_draft(
+            {"name": "Dave Johnson", "first_name": "Dave", "rank": 5},
+            {"name": "BCA", "domain": "bca.test"},
+            {"details": [{"text": "We build automated packaging systems.",
+                          "url": "https://bca.test/"}]},
+            {"name": "Akshar Pathak"})
+        body = drafted["body"].lower()
+        for phrase in ("my internship", "internship at silverside",
+                       "during my internship", "internship i'm doing"):
+            self.assertNotIn(phrase, body)
+
+    def test_config_default_carries_the_wording(self):
+        # Set in config, not only reachable through an env var.
+        self.assertIn("paid assembly work", config.APPLICANT["work"])
+        self.assertNotIn("contractor", config.APPLICANT["work"])
 
 
 class ReferencePhrasing(unittest.TestCase):

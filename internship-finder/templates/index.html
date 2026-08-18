@@ -560,12 +560,17 @@ async function openDraft(index) {
     $('dlgVerify').style.display = 'none';
     if (drafted.research_failed) {
       const pages = (drafted.pages_read || []).join('\n');
+      const advice = drafted.kind === 'name'
+        ? 'Check the real spelling on their site or LinkedIn, fix the contact, ' +
+          'then draft again. A wrong greeting is the clearest sign an email was ' +
+          'generated.'
+        : 'No email was generated. Write the specific line yourself, or skip ' +
+          'this contact — a generic email spends the contact for nothing.';
       $('dlgBody').value =
         drafted.error + '\n\n' + (drafted.reason || '') +
-        (pages ? '\n\nPages read:\n' + pages : '') +
-        '\n\nNo email was generated. Write the specific line yourself, or skip ' +
-        'this contact — a generic email spends the contact for nothing.';
-      setStatus('Research failed — no draft generated.', 'bad');
+        (pages ? '\n\nPages read:\n' + pages : '') + '\n\n' + advice;
+      setStatus(drafted.kind === 'name' ? 'Name looks unreliable — no draft.'
+                : 'No draft generated.', 'bad');
     } else {
       setStatus(drafted.error || 'failed', 'bad');
     }

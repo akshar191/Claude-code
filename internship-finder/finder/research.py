@@ -46,6 +46,11 @@ _FLUFF = re.compile(
 
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 
+# Words that mark a sentence as a menu of services rather than a claim.
+_ENUMERATION = re.compile(
+    r"\b(include|includes|including|such as|capabilit(?:y|ies)|services|"
+    r"offerings?|expertise|specialt(?:y|ies)|disciplines)\b", re.IGNORECASE)
+
 
 # Elements that hold one idea. Reading text per block rather than flattening the
 # whole page is the difference between "Alfred is a collaborative robot arm that
@@ -109,14 +114,23 @@ def _score(sentence):
         return 0, "marketing filler"
     if not _CONCRETE.search(sentence):
         return 0, "no concrete product noun"
+    # "Our in-house capabilities include mechanical engineering, controls
+    # integration, machining, assembly, and testing" is a services menu, not a
+    # statement about a thing they build, and it cannot be referenced naturally.
+    if sentence.count(",") >= 3 and _ENUMERATION.search(sentence):
+        return 0, "capability list rather than a claim"
 
     score = len(_CONCRETE.findall(sentence))
+    if sentence.count(",") >= 2:
+        score -= 1  # leaning towards an enumeration
     if re.match(r"^(we|our)\b", sentence, re.IGNORECASE):
         score += 2  # first-person claims are the company describing itself
     if re.match(r"^[A-Z][a-zA-Z0-9-]* (is|are) an? ", sentence):
         score += 2  # "Alfred is a collaborative robot arm ..."
     if re.search(r"\d", sentence):
         score += 1  # numbers are specific
+    if score <= 0:
+        return 0, "too weak once list-like structure is accounted for"
     return score, "kept"
 
 

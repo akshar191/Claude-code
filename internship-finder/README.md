@@ -113,32 +113,44 @@ Each contact row has a **Draft email** button. Pressing it:
    are scored — first-person claims ("We build…"), "X is a Y" definitions, and
    numbers score up; marketing filler ("world-class", "cutting-edge") and
    boilerplate ("all rights reserved") score zero.
-2. **Refuses if it found nothing.** No specific detail means no email. The API
+2. **Checks the greeting name.** A first name that is a bare initial, contains
+   a period, is under three characters, or looks like two fields run together
+   ("M Dinne") stops the draft. "Hi M Dinne," announces an email as automated
+   before anything else is read, and there is no safe way to guess — so it asks
+   you to verify the name instead. There is no "Hi there," fallback either.
+3. **Refuses if it found nothing.** No specific detail means no email. The API
    returns 422 with what it fetched, how many blocks it read, and why each
    candidate was rejected. A generic email dressed up as a personal one is
    worse than none: the contact is spent either way, and the generic version
    guarantees no reply.
-3. **Writes the email** (`outreach.internship_draft`) **referencing** the detail
+4. **Writes the email** (`outreach.internship_draft`) **referencing** the detail
    in plain language — "What interests me about X is your work on Y" — never
    quoting it. Pasting a company's own marketing copy back at the person who
    wrote it is worse than saying nothing. `outreach.reference_phrase` reduces a
    site sentence to a noun phrase that reads as your own words, and flags the
-   ones it could not normalise so you rewrite them yourself. Your background
+   ones it could not normalise so you rewrite them yourself. Capability lists
+   ("our in-house capabilities include machining, assembly, and…") are rejected
+   at both the research and phrasing stages: they are a menu of services, not a
+   claim about a thing they build, and they cannot be referenced grammatically.
+   If the first detail fails these checks the second is tried before refusing. Your background
    comes from `APPLICANT_*` config, inserted **exactly as written**.
-4. **Adapts the ask to seniority.** Rank 4 and up (founder, CEO, VP, partner)
+5. **Adapts the ask to seniority.** Rank 4 and up (founder, CEO, VP, partner)
    can actually say yes, so they get the direct internship ask. Below that —
    directors, managers, engineers — the email asks about their work and makes
    no request, because asking them for a job is asking the wrong person.
-5. **Shows it in an editable textarea.** The raw claim and the URL it came from
+6. **Shows it in an editable textarea.** The raw claim and the URL it came from
    sit beside the draft — not inside the email — so you can check the one thing
    a machine inferred from a web page. The address confidence is shown up front,
    and below ~50% it warns you before you spend time editing a draft to an
    address that will probably bounce.
-6. **Says nothing about the outreach itself.** No claims about not mass-mailing,
+7. **Says nothing about the outreach itself.** No claims about not mass-mailing,
    no explaining why you picked them, no narrating the personalisation — an
    email that insists it is not a template reads as exactly the thing it denies
    being. Tests assert those phrases never appear.
-7. **Saves to Gmail Drafts** — never sends.
+8. **Validates the finished email** before returning it. No ellipsis, no
+   doubled prepositions, no unfilled template seams, every sentence terminated.
+   A draft that fails is thrown away rather than handed over.
+9. **Saves to Gmail Drafts** — never sends.
 
 ### Gmail scope
 
@@ -234,7 +246,7 @@ starts cold, which costs Hunter credits. A persistent disk or Postgres fixes it.
 python -m unittest discover -s tests
 ```
 
-159 tests, all offline.
+180 tests, all offline.
 
 - `test_finder.py` — parsing, title ranking, pattern inference, size and
   directory filtering, caching, drafting, storage.

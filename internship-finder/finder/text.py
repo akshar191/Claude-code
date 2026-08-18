@@ -110,6 +110,34 @@ def split_name(full_name):
     return first, last
 
 
+def first_name_problem(first):
+    """Why this first name is not safe to put after "Hi ", or None if it is.
+
+    "Hi M Dinne," is the single most obvious tell that an email was generated,
+    so anything that looks like a parsing artifact stops the draft rather than
+    getting cleaned up and guessed at.
+    """
+    name = " ".join((first or "").split())
+    if not name:
+        return "no first name"
+    if any(ch.isdigit() for ch in name):
+        return "contains digits"
+    if "." in name:
+        return "contains a period, so it is probably an initial"
+    if len(name) < 3:
+        return "only %d character(s) long" % len(name)
+    if " " in name:
+        # "M Dinne" -- an initial glued to a name, or two fields run together.
+        if any(len(token) == 1 for token in name.split()):
+            return "looks like an initial joined to a name (%r)" % name
+        return "is two words (%r), which may be two fields run together" % name
+    if name.isupper() and len(name) <= 4:
+        return "is all capitals, so it may be an acronym"
+    if not re.match(r"^[A-Za-z][A-Za-z'’-]+$", strip_accents(name)):
+        return "contains characters a first name would not"
+    return None
+
+
 def clean_person_name(full_name):
     """Tidy a name that came from a provider rather than from HTML we parsed.
 

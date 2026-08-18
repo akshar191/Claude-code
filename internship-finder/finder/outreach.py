@@ -136,7 +136,8 @@ _REPHRASE_RULES = (
 # delivers Y" is not a sentence. Cut before it.
 _FINITE_VERB = re.compile(
     r"\s*(?:,\s*)?\b(?:produces|delivers|provides|enables|offers|allows|helps|"
-    r"powers|supports|reduces|improves|lets|is|are|was|were|has|have|can|will)\b.*$",
+    r"powers|supports|reduces|improves|lets|includes?|spans?|covers?|ranges?|"
+    r"features?|serves?|is|are|was|were|has|have|can|will)\b.*$",
     re.IGNORECASE,
 )
 
@@ -189,12 +190,108 @@ class ResearchFailed(Exception):
 
     A generic email dressed up as a personal one is worse than no email: the
     contact is spent either way, and the generic version guarantees no reply.
+
+    Subclasses cover the other ways a draft can be not-worth-sending. They all
+    inherit from this so callers keep one refusal path.
     """
+
+    kind = "research"
 
     def __init__(self, reason, diagnostics=None):
         super().__init__(reason)
         self.reason = reason
         self.diagnostics = diagnostics or {}
+
+
+class NameUnreliable(ResearchFailed):
+    """The greeting would be wrong, so there is no draft worth editing."""
+
+    kind = "name"
+
+
+class DraftInvalid(ResearchFailed):
+    """The assembled email is not grammatical, so it does not go out."""
+
+    kind = "grammar"
+
+
+# --------------------------------------------------------------------------
+# Quality gates
+# --------------------------------------------------------------------------
+
+# A capability list is an enumeration of services, not a claim about a thing
+# they build. "your work on the in-house capabilities include ..." is what
+# happens when one is dropped into a sentence frame.
+_ENUMERATION = re.compile(
+    r"\b(include|includes|including|such as|ranging from|offerings?|capabilit(?:y|ies)|"
+    r"services|expertise|specialt(?:y|ies)|disciplines)\b", re.IGNORECASE)
+
+_TRAILING_JUNK = re.compile(
+    r"\b(and|or|with|for|to|of|in|on|at|the|a|an|that|which|from|by)$", re.IGNORECASE)
+
+
+def phrase_problem(phrase):
+    """Why this phrase cannot follow "your work on", or None if it can."""
+    if not phrase:
+        return "empty"
+    if "…" in phrase or "..." in phrase:
+        return "was truncated mid-sentence"
+    words = phrase.split()
+    if len(words) < 2:
+        return "too short to reference"
+    if len(words) > 24:
+        return "too long to read as a phrase"
+    if phrase.count(",") >= 3:
+        return "is a comma-separated list, not a claim"
+    if _ENUMERATION.search(phrase):
+        return "is a list of services rather than something they build"
+    if _TRAILING_JUNK.search(words[-1].strip(".,;:")):
+        return "ends mid-thought on %r" % words[-1]
+    if _FINITE_VERB.match(" " + phrase):
+        return "is a clause, not a noun phrase"
+    return None
+
+
+# Seams and breakages that must never reach a draft.
+_ELLIPSIS = re.compile(r"…|\.\.\.")
+_TEMPLATE_SEAM = re.compile(r"[{}]|%s|%\(|\[your |\[a project|\[insert", re.IGNORECASE)
+_DOUBLED_WORD = re.compile(
+    r"\b(on|in|at|of|for|with|to|about|the|a|an|and|is|are)\s+\1\b", re.IGNORECASE)
+_DOUBLED_PREP = re.compile(
+    r"\b(on|in|at|of|for|with|about)\s+(?:the|a|an)?\s*\b(on|in|at|of|for|with|about)\b",
+    re.IGNORECASE)
+
+
+def draft_problem(body):
+    """Why this email body is not sendable, or None if it is.
+
+    Runs over the finished text, after every fragment has been substituted --
+    the point is to catch a broken seam no individual check saw.
+    """
+    if not body or not body.strip():
+        return "empty body"
+    if _ELLIPSIS.search(body):
+        return "contains an ellipsis, so something was truncated"
+    seam = _TEMPLATE_SEAM.search(body)
+    if seam:
+        return "contains an unfilled template seam (%r)" % seam.group(0)
+    doubled = _DOUBLED_WORD.search(body) or _DOUBLED_PREP.search(body)
+    if doubled:
+        return "contains a doubled preposition (%r)" % doubled.group(0)
+
+    # Every prose sentence should be a sentence: the greeting, sign-off and
+    # signature lines are addressed separately.
+    for paragraph in body.split("\n"):
+        line = paragraph.strip()
+        if not line or line.endswith(",") or len(line.split()) < 4:
+            continue  # "Hi Dave,", "Thanks for reading,", a signature
+        if not line.endswith((".", "?", "!")):
+            return "a sentence does not end in punctuation: %r" % line[-60:]
+        for sentence in re.split(r"(?<=[.?!])\s+", line):
+            sentence = sentence.strip()
+            if sentence and len(sentence.split()) < 3:
+                return "a sentence is a fragment: %r" % sentence
+    return None
 
 
 # Rank 4 and up (founder, CEO, VP, partner) can say yes to an intern. Below
@@ -213,7 +310,11 @@ def internship_draft(contact, company, research, profile=None):
     profile = dict(config.APPLICANT, **{
         k: v for k, v in (profile or {}).items() if v not in (None, "")
     })
-    first = _first_name(contact)
+    # Strict: the generic "there" fallback that _first_name uses elsewhere is
+    # itself a tell in a cold email addressed to a named person.
+    first = (contact.get("first_name") or "").strip()
+    if not first:
+        first = (text.split_name(contact.get("name") or "")[0] or "").strip()
     company_name = company.get("name") or "your team"
     details = (research or {}).get("details") or []
 
@@ -232,13 +333,40 @@ def internship_draft(contact, company, research, profile=None):
     venture = profile.get("venture") or ""
     target = profile.get("target") or "summer 2027"
 
-    # The researched fact, referenced in plain language. The raw claim and its
-    # source travel alongside the draft for checking, not inside the email.
-    source_claim = " ".join(details[0]["text"].split())
-    source_url = details[0].get("url")
-    phrase, normalised = reference_phrase(source_claim)
-    if len(phrase) > 160:
-        phrase = phrase[:157].rsplit(" ", 1)[0] + "…"
+    # The greeting has to be right or there is no point drafting: "Hi M Dinne,"
+    # announces the email as automated before anything else is read.
+    problem = text.first_name_problem(first)
+    if problem:
+        if not first:
+            problem = "could not be determined from %r" % (contact.get("name") or "")
+        raise NameUnreliable(
+            "The first name for this contact (%r) %s. Check the real name on "
+            "their site or LinkedIn, correct it, and draft again -- a wrong "
+            "greeting is the most obvious tell there is." % (first, problem)
+        )
+
+    # Take the first researched detail that survives the phrase checks; a
+    # capability list or a truncated fragment is not worth an email.
+    source_claim = source_url = phrase = None
+    normalised = False
+    rejected = []
+    for detail in details:
+        claim = " ".join((detail.get("text") or "").split())
+        candidate, candidate_ok = reference_phrase(claim)
+        why_not = phrase_problem(candidate)
+        if why_not:
+            rejected.append({"claim": claim[:120], "why": why_not})
+            continue
+        source_claim, source_url = claim, detail.get("url")
+        phrase, normalised = candidate, candidate_ok
+        break
+
+    if not phrase:
+        raise ResearchFailed(
+            "Nothing found on their site works as a specific reference: %s"
+            % "; ".join("%s (%s)" % (r["why"], r["claim"][:60]) for r in rejected),
+            {"rejected_phrases": rejected},
+        )
 
     rank = contact.get("rank") or 0
     direct_ask = rank >= DIRECT_ASK_RANK
@@ -296,9 +424,17 @@ def internship_draft(contact, company, research, profile=None):
     if profile.get("phone"):
         lines.append(profile["phone"])
 
+    body = "\n".join(lines)
+    broken = draft_problem(body)
+    if broken:
+        raise DraftInvalid(
+            "The generated email is not sendable: %s. Nothing was drafted." % broken,
+            {"body": body},
+        )
+
     return {
         "subject": subject,
-        "body": "\n".join(lines),
+        "body": body,
         # For the UI's verification panel -- deliberately NOT in the email body.
         "source_claim": source_claim,
         "source_url": source_url,

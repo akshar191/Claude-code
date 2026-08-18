@@ -5,6 +5,8 @@ their own inbox -- three sentences that show you looked at what they build beat
 anything templated-sounding.
 """
 
+import re
+
 from . import config, text
 
 STYLES = {
@@ -112,6 +114,76 @@ def draft(contact, profile, style="advice"):
     return {"subject": subject, "body": "\n".join(body_lines)}
 
 
+# Turning a sentence of marketing copy into something in your own voice.
+_MAKE_VERBS = (r"build|builds|design|designs|develop|develops|make|makes|"
+               r"manufacture|manufactures|engineer|engineers|produce|produces|"
+               r"create|creates|deliver|delivers|provide|provides")
+
+_REPHRASE_RULES = (
+    # "We build robotic arms for research" -> "robotic arms for research"
+    (re.compile(r"^(?:we|our team)\s+(?:are\s+|is\s+)?(?:%s)\s+(.+)$" % _MAKE_VERBS,
+                re.IGNORECASE), ""),
+    # "We have found that a holistic approach..." -> "a holistic approach..."
+    (re.compile(r"^(?:we|our team)\s+\w+(?:\s+\w+){0,2}?\s+that\s+(.+)$",
+                re.IGNORECASE), ""),
+    # "Alfred is a collaborative robot arm that..." -> "a collaborative robot arm that..."
+    (re.compile(r"^[A-Z][\w'-]*\s+(?:is|are)\s+((?:a|an|the)\s+.+)$"), ""),
+    # "Our WAM arm delivers 7 degrees of freedom" -> "the WAM arm"
+    (re.compile(r"^our\s+(.+)$", re.IGNORECASE), "the "),
+)
+
+# A finite verb turns the phrase back into a clause, and "your work on X
+# delivers Y" is not a sentence. Cut before it.
+_FINITE_VERB = re.compile(
+    r"\s*(?:,\s*)?\b(?:produces|delivers|provides|enables|offers|allows|helps|"
+    r"powers|supports|reduces|improves|lets|is|are|was|were|has|have|can|will)\b.*$",
+    re.IGNORECASE,
+)
+
+
+def _trim_to_noun_phrase(phrase):
+    """Cut a phrase back to the noun part, if it runs on into a verb."""
+    trimmed = _FINITE_VERB.sub("", phrase).strip(" ,;:-")
+    # Only accept the trim if something substantial survives.
+    if len(trimmed.split()) >= 2:
+        return trimmed
+    return phrase.strip(" ,;:-")
+
+
+def reference_phrase(claim):
+    """A site sentence -> a noun phrase that can follow "your work on ...".
+
+    Returns (phrase, normalised). When normalised is False we could not get the
+    sentence into a shape that reads naturally in someone's own voice, and the
+    UI says so rather than quietly shipping an awkward line.
+
+    Quoting marketing copy back at the person who wrote it is worse than saying
+    nothing, so the email never contains quotation marks -- the raw claim and
+    its source URL are shown beside the draft instead.
+    """
+    sentence = " ".join((claim or "").split()).rstrip(".")
+    if not sentence:
+        return "", False
+
+    for pattern, prefix in _REPHRASE_RULES:
+        match = pattern.match(sentence)
+        if not match:
+            continue
+
+        phrase = _trim_to_noun_phrase(match.group(1).strip().rstrip("."))
+        if not phrase:
+            continue
+
+        # Lowercase a leading determiner; leave product names capitalised.
+        if phrase.split()[0].lower() in ("a", "an", "the", "our", "your"):
+            phrase = phrase[0].lower() + phrase[1:]
+        return (prefix + phrase).strip(), True
+
+    # Could not get it into a natural shape. Hand it back lowercased and let the
+    # UI flag it for rewriting rather than shipping an awkward line silently.
+    return sentence[0].lower() + sentence[1:], False
+
+
 class ResearchFailed(Exception):
     """Raised rather than writing an email with no company in it.
 
@@ -160,11 +232,13 @@ def internship_draft(contact, company, research, profile=None):
     venture = profile.get("venture") or ""
     target = profile.get("target") or "summer 2027"
 
-    # The verifiable hook, quoted rather than paraphrased.
-    quoted = details[0]["text"].rstrip(".")
-    if len(quoted) > 180:
-        quoted = quoted[:177].rsplit(" ", 1)[0] + "…"
-    why = 'Your site says: "%s"' % quoted
+    # The researched fact, referenced in plain language. The raw claim and its
+    # source travel alongside the draft for checking, not inside the email.
+    source_claim = " ".join(details[0]["text"].split())
+    source_url = details[0].get("url")
+    phrase, normalised = reference_phrase(source_claim)
+    if len(phrase) > 160:
+        phrase = phrase[:157].rsplit(" ", 1)[0] + "…"
 
     rank = contact.get("rank") or 0
     direct_ask = rank >= DIRECT_ASK_RANK
@@ -179,10 +253,12 @@ def internship_draft(contact, company, research, profile=None):
     lines = ["Hi %s," % first, ""]
     lines += ["I'm %s, a %s%s." % (student, year, " in %s" % town if town else ""), ""]
 
-    # The quoted claim, attributed rather than paraphrased.
+    # The researched fact, in the sender's voice. Nothing here comments on the
+    # outreach itself -- an email that insists it is not a mass email reads as
+    # exactly the thing it denies being.
     lines += [
-        "%s — that's the part I keep coming back to, and it's why I'm writing to "
-        "you specifically rather than sending this everywhere." % why,
+        "What interests me about %s is your work on %s. I'd like to understand "
+        "how something like that actually gets built." % (company_name, phrase),
         "",
     ]
 
@@ -223,7 +299,11 @@ def internship_draft(contact, company, research, profile=None):
     return {
         "subject": subject,
         "body": "\n".join(lines),
-        "why": why,
+        # For the UI's verification panel -- deliberately NOT in the email body.
+        "source_claim": source_claim,
+        "source_url": source_url,
+        "reference": phrase,
+        "reference_normalised": normalised,
         "details": details,
         "sources": (research or {}).get("pages") or [],
         "unverified": True,

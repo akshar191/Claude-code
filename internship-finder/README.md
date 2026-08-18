@@ -118,18 +118,27 @@ Each contact row has a **Draft email** button. Pressing it:
    candidate was rejected. A generic email dressed up as a personal one is
    worse than none: the contact is spent either way, and the generic version
    guarantees no reply.
-3. **Writes the email** (`outreach.internship_draft`) quoting a detail verbatim
-   rather than paraphrasing it, alongside your background from `APPLICANT_*`
-   config — inserted **exactly as written**, never re-worded.
+3. **Writes the email** (`outreach.internship_draft`) **referencing** the detail
+   in plain language — "What interests me about X is your work on Y" — never
+   quoting it. Pasting a company's own marketing copy back at the person who
+   wrote it is worse than saying nothing. `outreach.reference_phrase` reduces a
+   site sentence to a noun phrase that reads as your own words, and flags the
+   ones it could not normalise so you rewrite them yourself. Your background
+   comes from `APPLICANT_*` config, inserted **exactly as written**.
 4. **Adapts the ask to seniority.** Rank 4 and up (founder, CEO, VP, partner)
    can actually say yes, so they get the direct internship ask. Below that —
    directors, managers, engineers — the email asks about their work and makes
    no request, because asking them for a job is asking the wrong person.
-5. **Shows it in an editable textarea**, with the quoted line called out
-   separately as *"Check this line before sending"* and a link to the page it
-   came from. It's the one claim written by a machine reading a web page, so it
-   is the one line to verify or delete.
-6. **Saves to Gmail Drafts** — never sends.
+5. **Shows it in an editable textarea.** The raw claim and the URL it came from
+   sit beside the draft — not inside the email — so you can check the one thing
+   a machine inferred from a web page. The address confidence is shown up front,
+   and below ~50% it warns you before you spend time editing a draft to an
+   address that will probably bounce.
+6. **Says nothing about the outreach itself.** No claims about not mass-mailing,
+   no explaining why you picked them, no narrating the personalisation — an
+   email that insists it is not a template reads as exactly the thing it denies
+   being. Tests assert those phrases never appear.
+7. **Saves to Gmail Drafts** — never sends.
 
 ### Gmail scope
 
@@ -225,7 +234,7 @@ starts cold, which costs Hunter credits. A persistent disk or Postgres fixes it.
 python -m unittest discover -s tests
 ```
 
-148 tests, all offline.
+159 tests, all offline.
 
 - `test_finder.py` — parsing, title ranking, pattern inference, size and
   directory filtering, caching, drafting, storage.

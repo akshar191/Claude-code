@@ -251,10 +251,109 @@ class InternshipDraft(unittest.TestCase):
         vp = {"name": "Daniel O'Brien", "first_name": "Daniel", "rank": 4}
         self.assertEqual(self.draft(vp)["ask"], "internship")
 
-    def test_flags_the_line_that_needs_checking(self):
+    # --- no meta-commentary about the outreach itself --------------------
+
+    def test_never_comments_on_the_outreach(self):
+        """An email insisting it is not a mass email reads as one."""
+        banned = [
+            "rather than sending this everywhere",
+            "writing to you specifically",
+            "not a mass email",
+            "i keep coming back to",
+            "sending this everywhere",
+            "why i'm writing to you",
+            "why i am writing to you",
+            "i'm not sending this",
+            "personalised", "personalized",
+            "i did my research",
+            "unlike other emails",
+            "this isn't a template",
+            "this is not a template",
+            "i chose you",
+            "i picked you",
+        ]
+        for contact in (self.ceo, self.engineer):
+            body = self.draft(contact)["body"].lower()
+            for phrase in banned:
+                self.assertNotIn(phrase, body, "meta-commentary %r in draft" % phrase)
+
+    # --- reference the fact, do not quote it -----------------------------
+
+    def test_does_not_block_quote_the_site(self):
+        for contact in (self.ceo, self.engineer):
+            body = self.draft(contact)["body"]
+            for mark in ('"', "“", "”", "Your site says"):
+                self.assertNotIn(mark, body, "quotation %r in draft" % mark)
+
+    def test_weaves_the_detail_into_a_sentence(self):
+        body = self.draft()["body"]
+        self.assertIn("your work on a collaborative robot arm", body)
+
+    def test_surfaces_the_claim_and_source_for_checking(self):
         drafted = self.draft()
+        self.assertIn("collaborative robot arm", drafted["source_claim"])
+        self.assertEqual(drafted["source_url"], "https://dexai.test/")
         self.assertTrue(drafted["unverified"])
-        self.assertIn("Your site says", drafted["why"])
+        # ...but the raw claim is not pasted into the email.
+        self.assertNotIn(drafted["source_claim"], drafted["body"])
+
+    def test_flags_a_phrase_it_could_not_rephrase(self):
+        drafted = self.draft(research_data={
+            "details": [{"text": "Precision matters in every weldment we ship.",
+                         "url": "https://x.test/"}], "pages": []})
+        self.assertFalse(drafted["reference_normalised"])
+
+    def test_marks_a_clean_rephrase_as_normalised(self):
+        self.assertTrue(self.draft()["reference_normalised"])
+
+
+class ReferencePhrasing(unittest.TestCase):
+    """Marketing copy -> something that reads as the sender's own words."""
+
+    def phrase(self, sentence):
+        return outreach.reference_phrase(sentence)
+
+    def test_strips_a_first_person_verb(self):
+        got, ok = self.phrase("We build robotic arms and haptic devices for research.")
+        self.assertTrue(ok)
+        self.assertEqual(got, "robotic arms and haptic devices for research")
+
+    def test_handles_a_product_definition(self):
+        got, ok = self.phrase(
+            "Alfred is a collaborative robot arm that preps food in commercial kitchens.")
+        self.assertTrue(ok)
+        self.assertEqual(got, "a collaborative robot arm that preps food in commercial kitchens")
+
+    def test_trims_a_run_on_clause(self):
+        # "...produces better buildings" would make "your work on X produces Y".
+        got, ok = self.phrase(
+            "We have found that a holistic approach to engineering services, "
+            "where all trades collaborate, produces better buildings.")
+        self.assertTrue(ok)
+        self.assertNotIn("produces", got)
+        self.assertIn("holistic approach", got)
+
+    def test_reduces_our_x_delivers_y_to_the_noun(self):
+        got, ok = self.phrase("Our WAM arm delivers 7 degrees of freedom with cable drives.")
+        self.assertTrue(ok)
+        self.assertEqual(got, "the WAM arm")
+
+    def test_flags_a_sentence_it_cannot_normalise(self):
+        got, ok = self.phrase("Precision matters in every weldment we ship.")
+        self.assertFalse(ok)
+        self.assertTrue(got.startswith("precision"))
+
+    def test_every_normalised_phrase_reads_after_your_work_on(self):
+        for sentence in (
+            "We design fire protection and life safety systems for existing buildings.",
+            "We manufacture cryogenic valves for launch vehicles.",
+            "Sparrow is a handheld device that detects trace explosives.",
+        ):
+            got, ok = self.phrase(sentence)
+            self.assertTrue(ok, sentence)
+            # No finite verb left to break the sentence.
+            for verb in (" delivers ", " produces ", " provides ", " is ", " are "):
+                self.assertNotIn(verb, " %s " % got)
 
 
 class GmailIntegration(unittest.TestCase):

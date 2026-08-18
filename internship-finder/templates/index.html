@@ -278,10 +278,17 @@
   <div class="to" id="dlgTo"></div>
   <div class="to" id="dlgAsk" style="color:var(--accent)"></div>
 
+  <div id="dlgConf" class="verify" style="display:none"></div>
+
   <div id="dlgVerify" class="verify" style="display:none">
-    <b>Check this line before sending</b>
-    <div id="dlgWhy"></div>
-    <div style="margin-top:.35rem"><a id="dlgSource" href="#" target="_blank" rel="noopener">source page</a></div>
+    <b>This line came from their site — check it</b>
+    <div id="dlgClaim"></div>
+    <div style="margin-top:.4rem">Referenced in the email as:
+      <span id="dlgRef" style="color:var(--text)"></span></div>
+    <div id="dlgRewrite" style="margin-top:.4rem;color:var(--amber);display:none">
+      Could not rephrase this cleanly — rewrite that sentence in your own words
+      before sending.</div>
+    <div style="margin-top:.4rem"><a id="dlgSource" href="#" target="_blank" rel="noopener"></a></div>
   </div>
 
   <label for="dlgSubject">Subject</label>
@@ -536,6 +543,7 @@ async function openDraft(index) {
   $('dlgSubject').value = '';
   $('dlgBody').value = 'Reading their website…';
   $('dlgVerify').style.display = 'none';
+  showConfidence(row.contact);
   setStatus('');
   $('draftDlg').showModal();
 
@@ -571,14 +579,40 @@ async function openDraft(index) {
     ? 'Direct internship ask — this person can say yes.'
     : 'No ask — this person is not the decision-maker, so it asks about their work.';
 
-  if (drafted.why) {
-    $('dlgWhy').textContent = drafted.why;
-    const source = (drafted.details && drafted.details[0] && drafted.details[0].url) || '';
+  if (drafted.source_claim) {
+    $('dlgClaim').textContent = drafted.source_claim;
+    $('dlgRef').textContent = 'your work on ' + (drafted.reference || '');
+    $('dlgRewrite').style.display = drafted.reference_normalised ? 'none' : 'block';
+    const source = drafted.source_url || '';
     $('dlgSource').href = source || '#';
+    $('dlgSource').textContent = source ? 'Source: ' + source : '';
     $('dlgSource').style.display = source ? 'inline' : 'none';
     $('dlgVerify').style.display = 'block';
-  } else if (drafted.research_error) {
-    setStatus('Could not read their site (' + drafted.research_error + ') — draft is generic.');
+  }
+}
+
+// Say up front how good the address is: editing a careful email to something
+// that will bounce is the most expensive way to waste time here.
+function showConfidence(contact) {
+  const pct = Math.round((contact.email_confidence || 0) * 100);
+  const tier = tierOf(contact);
+  const panel = $('dlgConf');
+  panel.style.display = 'block';
+
+  if (pct < 50) {
+    panel.style.background = 'rgba(239,68,68,.10)';
+    panel.style.borderColor = 'rgba(239,68,68,.35)';
+    panel.innerHTML =
+      '<b style="color:var(--red)">Low confidence address — ' + pct + '%</b>' +
+      escapeHtml(contact.email || '') + ' is ' + tier.label.toLowerCase() +
+      '. Roughly one in two addresses at this level bounce. Consider verifying it ' +
+      'before spending time on the draft.';
+  } else {
+    panel.style.background = 'rgba(34,197,94,.07)';
+    panel.style.borderColor = 'rgba(34,197,94,.28)';
+    panel.innerHTML =
+      '<b style="color:var(--green)">Address confidence ' + pct + '% — ' +
+      escapeHtml(tier.label) + '</b>' + escapeHtml(contact.email_basis || '');
   }
 }
 

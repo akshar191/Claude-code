@@ -286,6 +286,17 @@ def size_ok(company, criteria):
     if isinstance(count, int) and count > 0:
         return minimum <= count <= maximum, "headcount %s" % count
 
+    # A reported range ("51-200") is not an exact count, so judge it by overlap:
+    # reject only when the range cannot possibly fall inside what was asked for.
+    low, high = company.get("employees_min"), company.get("employees_max")
+    if low is not None or high is not None:
+        label = company.get("employees_raw") or "%s-%s" % (low or "?", high or "?")
+        if low is not None and low > maximum:
+            return False, "%s employees (Hunter) — above the limit" % label
+        if high is not None and high < minimum:
+            return False, "%s employees (Hunter) — below the minimum" % label
+        return True, "%s employees (Hunter)" % label
+
     if company.get("domain") in BIG_EMPLOYER_DOMAINS:
         return False, "known large employer"
 

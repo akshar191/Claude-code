@@ -49,7 +49,7 @@ lives in process memory.
 | Source | Why it's here |
 |---|---|
 | **Google Places** | Best recall for local businesses by far. Took a Boston search from 4 candidates to 37. |
-| **Hunter.io** | The only cheap way to learn a company's address format. Turns a 20%-confidence guess into an 85% derived address. |
+| **Hunter.io** | The only cheap way to learn a company's address format. Turns a 20%-confidence guess into an 85% derived address, and its `companies/find` headcount is what makes the size filter real. |
 | **Company websites** | Small companies list their leadership publicly. This is the free path, and often the most accurate one. |
 | **Apollo** | The only source with a true employee-count filter. Optional. |
 | **OpenStreetMap** | Free, no key — but both public Overpass mirrors time out routinely, so it's **off by default**. |
@@ -134,6 +134,15 @@ the length filter then discarded. Reading block by block instead recovers the
 one sentence that mattered. The lesson wasn't about BeautifulSoup: my mental
 model was *pages contain prose*, and real pages contain layout.
 
+**A classifier that would have inverted the filter.** Hunter's `companies/find`
+returns headcount, which is what turns "size not confirmed" into an actual
+filter — but it also returns a `category`, and it had labelled a robotics
+company as *Beverages* because its robot handles food. Using that for industry
+filtering would have silently dropped precisely the hardware companies the tool
+exists to find. The integration takes `metrics.employees` and does not carry the
+category back at all, because a field that is never returned cannot be
+accidentally depended on later.
+
 **Refusing to produce output.** The drafts kept coming out subtly wrong —
 `Hi M Dinne,` from a mangled name, *"your work on the in-house capabilities
 include…"* from a truncated services list. Each had its own fix, but the pattern
@@ -168,7 +177,7 @@ required to run — with none configured you get OpenStreetMap plus site crawlin
 `.env` is gitignored and no key appears anywhere in the repository or its history.
 
 ```bash
-python -m unittest discover -s tests    # 186 tests, all offline
+python -m unittest discover -s tests    # 200 tests, all offline
 ```
 
 Most of those tests exist because something broke in a live run, and several

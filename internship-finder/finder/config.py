@@ -48,6 +48,11 @@ HUNTER_VERIFY_BUDGET = _num("HUNTER_VERIFY_BUDGET", 10)
 # separately and spent on the most senior people first.
 HUNTER_FINDER_BUDGET = _num("HUNTER_FINDER_BUDGET", 6)
 
+# Per-company headcount lookups (companies/find), used to turn "size not
+# confirmed" into a real filter. One per company in a search, so the default
+# covers a full run with headroom.
+HUNTER_COMPANY_BUDGET = _num("HUNTER_COMPANY_BUDGET", 8)
+
 ENABLE_SMTP_PROBE = _flag("ENABLE_SMTP_PROBE", False)
 SMTP_FROM = os.environ.get("SMTP_FROM", "verify@example.com").strip()
 SMTP_TIMEOUT = _num("SMTP_TIMEOUT", 8.0)

@@ -6,6 +6,8 @@ try them and move on. API response shapes drift over time -- everything here
 reads defensively.
 """
 
+import re
+
 from . import config, store, text, web
 
 HUNTER_BASE = "https://api.hunter.io/v2"
@@ -62,6 +64,72 @@ def hunter_domain_search(domain, limit=10):
         "pattern": data.get("pattern"),
         "organization": data.get("organization"),
         "people": people,
+    }
+    store.cache_put(cache_key, result)
+    return result, None
+
+
+_EMPLOYEE_RANGE = re.compile(r"^\s*([\d,]+)\s*(?:[-–—]\s*([\d,]+)|(\+))?\s*$")
+
+
+def parse_employee_range(value):
+    """Hunter's "51-200" -> (51, 200). Returns (None, None) when unusable.
+
+    An open-ended "10001+" becomes (10001, None): a lower bound with no ceiling,
+    which is exactly what it means and enough to reject the company.
+    """
+    if isinstance(value, (int, float)) and value > 0:
+        return int(value), int(value)
+
+    match = _EMPLOYEE_RANGE.match(str(value or ""))
+    if not match:
+        return None, None
+
+    low = int(match.group(1).replace(",", ""))
+    if match.group(2):
+        return low, int(match.group(2).replace(",", ""))
+    if match.group(3):          # "10001+"
+        return low, None
+    return low, low             # a bare number is an exact count
+
+
+def hunter_company_find(domain):
+    """Headcount for a domain, so "size not confirmed" becomes a real filter.
+
+    Deliberately does NOT carry Hunter's `category` back. It classified a
+    robotics company as "Beverages" because their robot handles food, so
+    filtering on it would drop exactly the hardware companies this tool exists
+    to find. Not returning the field at all is the cheapest way to make sure a
+    later change cannot quietly start using it.
+    """
+    if not config.HUNTER_API_KEY:
+        return None, "not configured"
+
+    cache_key = "hunter:company:%s" % (domain or "").lower()
+    cached = store.cache_get(cache_key)
+    if cached is not None:
+        return cached, None
+
+    payload, error = web.api(
+        "GET",
+        HUNTER_BASE + "/companies/find",
+        params={"domain": domain, "api_key": config.HUNTER_API_KEY},
+    )
+    if error:
+        return None, error
+
+    data = (payload or {}).get("data") or {}
+    metrics = data.get("metrics") or {}
+    raw = metrics.get("employees") or metrics.get("employeesRange")
+    low, high = parse_employee_range(raw)
+
+    result = {
+        "name": data.get("name"),
+        "employees_raw": raw,
+        "employees_min": low,
+        "employees_max": high,
+        "founded": data.get("foundedYear"),
+        "source": "hunter",
     }
     store.cache_put(cache_key, result)
     return result, None

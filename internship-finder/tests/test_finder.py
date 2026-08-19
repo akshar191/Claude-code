@@ -707,3 +707,122 @@ class Storage(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class EmployeeRangeParsing(unittest.TestCase):
+    """Hunter reports headcount as a range string, not a number."""
+
+    def parse(self, value):
+        from finder.providers import parse_employee_range
+        return parse_employee_range(value)
+
+    def test_parses_a_plain_range(self):
+        self.assertEqual(self.parse("1-10"), (1, 10))
+        self.assertEqual(self.parse("51-200"), (51, 200))
+
+    def test_parses_an_open_ended_range(self):
+        # A lower bound with no ceiling is still enough to reject a company.
+        self.assertEqual(self.parse("10001+"), (10001, None))
+
+    def test_parses_a_bare_number_as_exact(self):
+        self.assertEqual(self.parse("50"), (50, 50))
+        self.assertEqual(self.parse(10), (10, 10))
+
+    def test_handles_thousands_separators(self):
+        self.assertEqual(self.parse("1,001-5,000"), (1001, 5000))
+
+    def test_unusable_values_parse_to_nothing(self):
+        for value in ("", None, "unknown", "lots", "~"):
+            self.assertEqual(self.parse(value), (None, None))
+
+
+class HeadcountFilter(unittest.TestCase):
+    """A range is judged by overlap: reject only what cannot fit."""
+
+    def size_ok(self, company, maximum=200, minimum=1):
+        return pipeline.companies_mod.size_ok(
+            company, {"min_employees": minimum, "max_employees": maximum})
+
+    def test_keeps_a_small_company(self):
+        ok, note = self.size_ok({"employees_min": 1, "employees_max": 10,
+                                 "employees_raw": "1-10"})
+        self.assertTrue(ok)
+        self.assertIn("1-10", note)
+
+    def test_keeps_a_range_that_straddles_the_limit(self):
+        # 51-200 against a 200 ceiling could fit, so it is not rejected.
+        self.assertTrue(self.size_ok({"employees_min": 51, "employees_max": 200,
+                                      "employees_raw": "51-200"})[0])
+
+    def test_rejects_a_range_entirely_above_the_limit(self):
+        ok, note = self.size_ok({"employees_min": 201, "employees_max": 500,
+                                 "employees_raw": "201-500"})
+        self.assertFalse(ok)
+        self.assertIn("above the limit", note)
+
+    def test_rejects_an_open_ended_large_range(self):
+        self.assertFalse(self.size_ok({"employees_min": 10001, "employees_max": None,
+                                       "employees_raw": "10001+"})[0])
+
+    def test_rejects_a_range_below_a_minimum(self):
+        ok, note = self.size_ok({"employees_min": 1, "employees_max": 10,
+                                 "employees_raw": "1-10"}, minimum=50)
+        self.assertFalse(ok)
+        self.assertIn("below the minimum", note)
+
+    def test_an_exact_count_still_wins(self):
+        ok, note = self.size_ok({"employee_count": 12, "employees_min": 201,
+                                 "employees_max": 500})
+        self.assertTrue(ok)
+        self.assertIn("headcount 12", note)
+
+    def test_no_data_still_falls_through_to_the_heuristics(self):
+        ok, note = self.size_ok({"domain": "acme.com", "site_text": "We build robots."})
+        self.assertTrue(ok)
+        self.assertIsNone(note)
+
+
+class CategoryIsNeverUsed(unittest.TestCase):
+    """Hunter classified a robotics company as "Beverages" because its robot
+    handles food. Filtering on that would drop the target companies."""
+
+    def test_the_provider_result_carries_no_category(self):
+        from finder import providers, store as store_mod
+        from finder import web as web_mod
+
+        original_api, original_key = web_mod.api, config.HUNTER_API_KEY
+        config.HUNTER_API_KEY = "test-key"
+        store_mod.init_db()
+
+        def fake_api(method, url, **kwargs):
+            return {"data": {
+                "name": "Dexai Robotics",
+                "category": {"industry": "Beverages", "sector": "Consumer Goods"},
+                "metrics": {"employees": "11-50"},
+            }}, None
+
+        web_mod.api = fake_api
+        providers.web.api = fake_api
+        try:
+            found, error = providers.hunter_company_find(
+                "dexai-category-test-%d.example" % time.time())
+        finally:
+            web_mod.api = original_api
+            providers.web.api = original_api
+            config.HUNTER_API_KEY = original_key
+
+        self.assertIsNone(error)
+        self.assertEqual(found["employees_min"], 11)
+        # The classification must not travel with the record at all.
+        self.assertNotIn("category", found)
+        self.assertNotIn("industry", found)
+        self.assertNotIn("sector", found)
+
+    def test_relevance_scoring_ignores_any_category_field(self):
+        # Even if a category leaked in, it must not decide whether a hardware
+        # company survives the industry filter.
+        company = {"name": "Dexai Robotics", "domain": "dexai.test",
+                   "category": "Beverages",
+                   "site_text": "We build a collaborative robot arm for kitchens."}
+        score = pipeline.companies_mod.relevance(company, {"industry": "robotics"})
+        self.assertGreater(score, 0)

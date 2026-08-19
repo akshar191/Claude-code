@@ -28,6 +28,9 @@ DEFAULTS = {
     # returns the best addresses available, so it is on by default when a key
     # is configured.
     "lookup_people": True,
+    # Ask Hunter for headcount before crawling, so an oversized company is
+    # dropped before any time or credits are spent on it.
+    "lookup_size": True,
     # Base-rate guessing ("most companies use first.last"). Off by default:
     # those addresses bounce, and a bounce on a cold email is worse than no
     # email at all.
@@ -36,6 +39,7 @@ DEFAULTS = {
 
 _finder_lock = threading.Lock()
 _finder_calls = 0
+_company_calls = 0
 
 
 def _claim_finder_call():
@@ -45,6 +49,16 @@ def _claim_finder_call():
         if _finder_calls >= config.HUNTER_FINDER_BUDGET:
             return False
         _finder_calls += 1
+        return True
+
+
+def _claim_company_call():
+    """Spend one Hunter headcount lookup, or refuse if this run is out."""
+    global _company_calls
+    with _finder_lock:
+        if _company_calls >= config.HUNTER_COMPANY_BUDGET:
+            return False
+        _company_calls += 1
         return True
 
 
@@ -124,6 +138,29 @@ def process_company(company, criteria, on_progress=None):
     def progress(message):
         if on_progress:
             on_progress(message)
+
+    if (criteria.get("lookup_size") and config.HUNTER_API_KEY
+            and company.get("domain") and not company.get("employee_count")
+            and _claim_company_call()):
+        sized, error = providers.hunter_company_find(company["domain"])
+        if sized:
+            # Headcount only. Hunter's category is deliberately ignored -- it
+            # called a robotics company "Beverages" because the robot handles
+            # food, and filtering on that drops the very companies we want.
+            for field in ("employees_raw", "employees_min", "employees_max"):
+                if sized.get(field) is not None:
+                    company[field] = sized[field]
+        elif error and error not in ("not configured", "no match"):
+            company.setdefault("notes", []).append("Hunter company: %s" % error)
+
+        ok_now, note_now = companies_mod.size_ok(company, criteria)
+        if not ok_now:
+            # Stop before the crawl; nothing downstream is worth spending.
+            company["size_ok"] = False
+            company["size_note"] = note_now
+            company["contacts"] = []
+            progress("Skipping %s — %s" % (company.get("name"), note_now))
+            return company
 
     progress("Reading %s" % (company.get("domain") or company.get("name")))
 
@@ -262,8 +299,8 @@ def run(criteria, on_progress=None):
     """Full search. Returns (companies, notes)."""
     criteria = normalize(criteria)
     verify.reset_budget()
-    global _finder_calls
-    _finder_calls = 0
+    global _finder_calls, _company_calls
+    _finder_calls = _company_calls = 0
     found, notes = companies_mod.discover(criteria, on_progress=on_progress)
     shortlist = found[: criteria["max_companies"]]
 

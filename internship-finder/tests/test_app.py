@@ -68,114 +68,148 @@ class PasswordGate(unittest.TestCase):
             config.APP_PASSWORD = "test-password"
 
 
-class RateLimits(unittest.TestCase):
+class CompanyCap(unittest.TestCase):
     def setUp(self):
         web_app.app.config["TESTING"] = True
         store.init_db()
         config.APP_PASSWORD = "test-password"
-        config.HUNTER_API_KEY = ""  # skip the quota gate for these
+        config.HUNTER_API_KEY = ""
         web_app._quota_cache.update(at=0, value=None)
         self.client = web_app.app.test_client()
         self.client.post("/login", data={"password": "test-password"})
 
-    def _clear_counters(self):
-        store.init_db()
-        with store.connect() as conn:
-            conn.execute("DELETE FROM rate_limit")
-
     def test_companies_are_capped_server_side(self):
-        self._clear_counters()
-        with web_app.app.test_request_context():
-            pass
-        # Ask for 50; the server must clamp to the configured maximum.
         captured = {}
         original_start = web_app.pipeline.start
-
-        def fake_start(criteria, label=None):
-            captured.update(criteria)
-            return "job-test"
-
-        web_app.pipeline.start = fake_start
+        web_app.pipeline.start = lambda criteria, label=None: captured.update(criteria) or "job"
         try:
-            self.client.post("/api/search", json={"location": "Boston", "max_companies": 50})
+            self.client.post("/api/search",
+                             json={"location": "Boston", "max_companies": 50})
         finally:
             web_app.pipeline.start = original_start
-
         self.assertEqual(captured["max_companies"], config.MAX_COMPANIES_PER_SEARCH)
 
-    def test_daily_limit_blocks_further_searches(self):
-        self._clear_counters()
+    def test_a_search_needs_a_location_or_keyword(self):
+        self.assertEqual(self.client.post("/api/search", json={}).status_code, 400)
+
+    def test_no_daily_limit_remains(self):
+        """The daily cap was removed; repeated searches must not be blocked."""
         original_start = web_app.pipeline.start
-        web_app.pipeline.start = lambda criteria, label=None: "job-test"
+        web_app.pipeline.start = lambda criteria, label=None: "job"
         try:
-            for _ in range(config.DAILY_SEARCH_LIMIT):
+            for _ in range(8):
                 response = self.client.post("/api/search", json={"location": "Boston"})
                 self.assertEqual(response.status_code, 202)
-
-            blocked = self.client.post("/api/search", json={"location": "Boston"})
-            self.assertEqual(blocked.status_code, 429)
-            self.assertIn("Daily limit", blocked.get_json()["error"])
-        finally:
-            web_app.pipeline.start = original_start
-
-    def test_a_search_needs_a_location_or_keyword(self):
-        self._clear_counters()
-        response = self.client.post("/api/search", json={})
-        self.assertEqual(response.status_code, 400)
-
-    def test_ip_counter_survives_a_cleared_cookie(self):
-        self._clear_counters()
-        original_start = web_app.pipeline.start
-        web_app.pipeline.start = lambda criteria, label=None: "job-test"
-        try:
-            for _ in range(config.DAILY_SEARCH_LIMIT):
-                self.client.post("/api/search", json={"location": "Boston"})
-
-            # A brand-new session from the same address is still counted.
-            fresh = web_app.app.test_client()
-            fresh.post("/login", data={"password": "test-password"})
-            blocked = fresh.post("/api/search", json={"location": "Boston"})
-            self.assertEqual(blocked.status_code, 429)
         finally:
             web_app.pipeline.start = original_start
 
 
 class QuotaGate(unittest.TestCase):
+    """Two tiers: a hard floor, and a confirmation that is never suppressed."""
+
     def setUp(self):
         web_app.app.config["TESTING"] = True
         store.init_db()
         config.APP_PASSWORD = "test-password"
+        config.HUNTER_API_KEY = "test-key"
         self.client = web_app.app.test_client()
         self.client.post("/login", data={"password": "test-password"})
         self.original_account = web_app.providers.hunter_account
+        self.original_start = web_app.pipeline.start
+        web_app.pipeline.start = lambda criteria, label=None: "job-test"
 
     def tearDown(self):
         web_app.providers.hunter_account = self.original_account
+        web_app.pipeline.start = self.original_start
         web_app._quota_cache.update(at=0, value=None)
         config.HUNTER_API_KEY = ""
 
-    def test_search_is_refused_when_quota_is_nearly_gone(self):
-        config.HUNTER_API_KEY = "test-key"
+    def with_credits(self, remaining):
         web_app._quota_cache.update(at=0, value=None)
         web_app.providers.hunter_account = lambda: (
-            {"searches_used": 48, "searches_available": 50, "reset_date": "2026-09-01"},
-            None,
-        )
+            {"searches_used": 50 - remaining, "searches_available": 50,
+             "reset_date": "2026-09-01"}, None)
+
+    # --- the hard floor --------------------------------------------------
+
+    def test_blocked_only_when_below_the_minimum(self):
+        self.with_credits(0)
         response = self.client.post("/api/search", json={"location": "Boston"})
         self.assertEqual(response.status_code, 429)
-        self.assertIn("Hunter lookups left", response.get_json()["error"])
+        self.assertIn("No Hunter credits left", response.get_json()["error"])
 
-    def test_meta_reports_the_block_so_the_button_can_be_disabled(self):
-        config.HUNTER_API_KEY = "test-key"
-        web_app._quota_cache.update(at=0, value=None)
-        web_app.providers.hunter_account = lambda: (
-            {"searches_used": 49, "searches_available": 50, "reset_date": "2026-09-01"},
-            None,
-        )
+    def test_one_credit_is_enough_to_run(self):
+        # Previously blocked at anything under 5; the last credits are spendable.
+        self.with_credits(1)
+        response = self.client.post(
+            "/api/search", json={"location": "Boston", "confirm_credits": True})
+        self.assertEqual(response.status_code, 202)
+
+    def test_the_floor_is_configurable(self):
+        original = config.MIN_HUNTER_CREDITS
+        config.MIN_HUNTER_CREDITS = 10
+        try:
+            self.with_credits(4)
+            response = self.client.post("/api/search", json={"location": "Boston"})
+            self.assertEqual(response.status_code, 429)
+        finally:
+            config.MIN_HUNTER_CREDITS = original
+
+    # --- the confirmation ------------------------------------------------
+
+    def test_low_credits_require_confirmation_first(self):
+        self.with_credits(3)
+        response = self.client.post("/api/search", json={"location": "Boston"})
+        self.assertEqual(response.status_code, 409)
+        payload = response.get_json()
+        self.assertTrue(payload["needs_confirmation"])
+        self.assertIn("remaining Hunter credits", payload["error"])
+        self.assertEqual(payload["remaining_credits"], 3)
+        self.assertGreater(payload["estimated_credits"], 0)
+
+    def test_confirming_lets_the_search_through(self):
+        self.with_credits(3)
+        response = self.client.post(
+            "/api/search", json={"location": "Boston", "confirm_credits": True})
+        self.assertEqual(response.status_code, 202)
+
+    def test_the_warning_is_never_suppressed(self):
+        """Confirming one search must not stop the next one asking."""
+        self.with_credits(3)
+        self.client.post("/api/search",
+                         json={"location": "Boston", "confirm_credits": True})
+        self.with_credits(3)
+        again = self.client.post("/api/search", json={"location": "Boston"})
+        self.assertEqual(again.status_code, 409)
+        self.assertTrue(again.get_json()["needs_confirmation"])
+
+    def test_plenty_of_credits_needs_no_confirmation(self):
+        self.with_credits(40)
+        response = self.client.post("/api/search", json={"location": "Boston"})
+        self.assertEqual(response.status_code, 202)
+
+    # --- what the page is told -------------------------------------------
+
+    def test_meta_reports_the_warning_without_disabling_search(self):
+        self.with_credits(2)
+        meta = self.client.get("/api/meta").get_json()
+        self.assertTrue(meta["can_search"])
+        self.assertTrue(meta["needs_confirmation"])
+        self.assertIn("remaining Hunter credits", meta["credit_warning"])
+        self.assertIsNone(meta["blocked_reason"])
+
+    def test_meta_reports_a_block_when_empty(self):
+        self.with_credits(0)
         meta = self.client.get("/api/meta").get_json()
         self.assertFalse(meta["can_search"])
-        self.assertIn("Hunter lookups left", meta["blocked_reason"])
-        self.assertEqual(meta["quota"]["remaining"], 1)
+        self.assertIn("No Hunter credits left", meta["blocked_reason"])
+
+    def test_the_estimate_names_a_real_cost(self):
+        self.with_credits(40)
+        meta = self.client.get("/api/meta").get_json()
+        self.assertEqual(meta["estimated_credits"],
+                         web_app.estimate_credits({"max_companies": 5}))
+        self.assertEqual(meta["thresholds"]["min_credits"], config.MIN_HUNTER_CREDITS)
 
 
 class CsvExport(unittest.TestCase):

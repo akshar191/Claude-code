@@ -73,10 +73,19 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "").strip() or os.urandom(32).hex()
 # Set automatically on Render; forces cookies to HTTPS only.
 IS_PRODUCTION = bool(os.environ.get("RENDER") or _flag("IS_PRODUCTION", False))
 
-DAILY_SEARCH_LIMIT = _num("DAILY_SEARCH_LIMIT", 2)
 MAX_COMPANIES_PER_SEARCH = _num("MAX_COMPANIES_PER_SEARCH", 5)
-# Below this many Hunter searches left, the UI stops offering to run one.
-MIN_QUOTA_TO_SEARCH = _num("MIN_QUOTA_TO_SEARCH", 5)
+# Two-tier quota gate.
+#
+# MIN_HUNTER_CREDITS is the hard floor: below it a search is refused outright,
+# because a run that dies halfway through its lookups produces worse data than
+# no run at all. Default 1 -- the last credits are yours to spend deliberately.
+#
+# HUNTER_WARN_CREDITS is where a search still runs but requires an explicit
+# confirmation naming what it will cost. The confirmation is never suppressed:
+# there is no "don't ask again", because the whole point is that the last few
+# credits get spent on purpose.
+MIN_HUNTER_CREDITS = _num("MIN_HUNTER_CREDITS", 1)
+HUNTER_WARN_CREDITS = _num("HUNTER_WARN_CREDITS", 5)
 
 # --- Gmail drafts -----------------------------------------------------------
 # OAuth client from the Google Cloud console. Scope is gmail.compose only:

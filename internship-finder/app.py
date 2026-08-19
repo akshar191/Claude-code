@@ -117,36 +117,6 @@ def logout():
     return redirect(url_for("login"))
 
 
-# --------------------------------------------------------------------------
-# Rate limiting: per browser session and per IP, whichever is stricter
-# --------------------------------------------------------------------------
-
-
-def _today():
-    return datetime.date.today().isoformat()
-
-
-def _client_ip():
-    forwarded = request.headers.get("X-Forwarded-For", "")
-    return (forwarded.split(",")[0].strip() or request.remote_addr or "unknown")
-
-
-def searches_used():
-    """Highest of the session and IP counters, so clearing cookies gains little."""
-    today = _today()
-    by_session = (session.get("searches") or {}).get(today, 0)
-    by_ip = store.rate_count("ip:%s" % _client_ip(), today)
-    return max(by_session, by_ip)
-
-
-def count_search():
-    today = _today()
-    counts = session.get("searches") or {}
-    counts = {today: counts.get(today, 0) + 1}  # only today's count is worth keeping
-    session["searches"] = counts
-    store.rate_increment("ip:%s" % _client_ip(), today)
-
-
 _quota_cache = {"at": 0.0, "value": None}
 _quota_lock = threading.Lock()
 
@@ -182,23 +152,51 @@ def hunter_quota(max_age=120):
     return result
 
 
-def search_allowed():
-    """(allowed, reason) for whether a new search may start right now."""
-    remaining = config.DAILY_SEARCH_LIMIT - searches_used()
-    if remaining <= 0:
-        return False, "Daily limit reached (%d searches). Try again tomorrow." % (
-            config.DAILY_SEARCH_LIMIT,
-        )
+def estimate_credits(criteria=None):
+    """Upper bound on Hunter credits one search can spend.
 
+    Every company costs a domain-search plus a headcount lookup, and per-person
+    lookups come out of the same pool. Caching means a re-run often costs less,
+    so this is deliberately the worst case -- a warning that under-states the
+    cost is not a warning.
+    """
+    companies = min(
+        int((criteria or {}).get("max_companies") or config.MAX_COMPANIES_PER_SEARCH),
+        config.MAX_COMPANIES_PER_SEARCH,
+    )
+    return (companies                                     # domain-search
+            + min(companies, config.HUNTER_COMPANY_BUDGET)  # companies/find
+            + config.HUNTER_FINDER_BUDGET)                  # email-finder
+
+
+def search_allowed(criteria=None):
+    """Whether a search may run: (allowed, reason, needs_confirmation, estimate).
+
+    Three states rather than two. Below MIN_HUNTER_CREDITS nothing runs. Between
+    that and HUNTER_WARN_CREDITS it runs, but only after the caller confirms a
+    message naming the cost. Above, it just runs.
+    """
+    estimate = estimate_credits(criteria)
     quota = hunter_quota()
-    if quota.get("configured") and "remaining" in quota:
-        if quota["remaining"] < config.MIN_QUOTA_TO_SEARCH:
-            return False, (
-                "Only %d Hunter lookups left this month (resets %s). Searching is "
-                "paused so the remaining credits are not spent by accident."
-                % (quota["remaining"], quota.get("resets") or "soon")
-            )
-    return True, None
+    if not (quota.get("configured") and "remaining" in quota):
+        return True, None, False, estimate
+
+    left = quota["remaining"]
+    resets = quota.get("resets") or "soon"
+
+    if left < config.MIN_HUNTER_CREDITS:
+        return False, (
+            "No Hunter credits left (resets %s). Searching is paused until then."
+            % resets
+        ), False, estimate
+
+    if left < config.HUNTER_WARN_CREDITS:
+        return True, (
+            "This will use up to %d of your %d remaining Hunter credits "
+            "(resets %s)." % (estimate, left, resets)
+        ), True, estimate
+
+    return True, None, False, estimate
 
 
 # --------------------------------------------------------------------------
@@ -235,7 +233,7 @@ def healthz():
 @app.route("/api/meta")
 @login_required
 def meta():
-    allowed, reason = search_allowed()
+    allowed, reason, needs_confirmation, estimate = search_allowed()
     return jsonify(
         {
             "industries": industries.choices(),
@@ -247,13 +245,16 @@ def meta():
             "providers": config.providers(),
             "draft_styles": [{"value": k, "label": v} for k, v in outreach.STYLES.items()],
             "quota": hunter_quota(),
-            "limits": {
-                "max_companies": config.MAX_COMPANIES_PER_SEARCH,
-                "daily_searches": config.DAILY_SEARCH_LIMIT,
-                "searches_used_today": searches_used(),
-            },
+            "limits": {"max_companies": config.MAX_COMPANIES_PER_SEARCH},
             "can_search": allowed,
-            "blocked_reason": reason,
+            "blocked_reason": reason if not allowed else None,
+            "credit_warning": reason if allowed else None,
+            "needs_confirmation": needs_confirmation,
+            "estimated_credits": estimate,
+            "thresholds": {
+                "min_credits": config.MIN_HUNTER_CREDITS,
+                "warn_below": config.HUNTER_WARN_CREDITS,
+            },
         }
     )
 
@@ -261,10 +262,6 @@ def meta():
 @app.route("/api/search", methods=["POST"])
 @login_required
 def start_search():
-    allowed, reason = search_allowed()
-    if not allowed:
-        return jsonify({"error": reason}), 429
-
     payload = request.get_json(silent=True) or {}
     if not payload.get("location") and not payload.get("keyword"):
         return jsonify({"error": "Give me at least a location or a keyword."}), 400
@@ -275,14 +272,28 @@ def start_search():
         config.MAX_COMPANIES_PER_SEARCH,
     )
 
-    count_search()
+    allowed, reason, needs_confirmation, estimate = search_allowed(payload)
+    if not allowed:
+        return jsonify({"error": reason}), 429
+
+    if needs_confirmation and not payload.get("confirm_credits"):
+        # 409: the request is fine, it just has not been agreed to yet. Confirming
+        # is per-search on purpose -- there is no flag that turns this off.
+        quota = hunter_quota()
+        return jsonify({
+            "error": reason,
+            "needs_confirmation": True,
+            "estimated_credits": estimate,
+            "remaining_credits": quota.get("remaining"),
+        }), 409
+
     # A search spends credits, so the cached quota reading is stale the moment
     # it starts. Without this the gate could be bypassed for up to two minutes.
     invalidate_quota()
     job_id = pipeline.start(payload, label=payload.get("label"))
     log.info("search started job=%s criteria=%s", job_id,
              {k: payload.get(k) for k in ("industry", "location", "max_companies")})
-    return jsonify({"job_id": job_id, "searches_used_today": searches_used()}), 202
+    return jsonify({"job_id": job_id}), 202
 
 
 @app.route("/api/search/<job_id>")

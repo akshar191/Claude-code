@@ -361,22 +361,29 @@ function renderQuota() {
     pill.className = 'pill ' + (quota.remaining < 10 ? 'warn' : 'good');
   }
 
-  const limits = META.limits || {};
-  $('limitPill').textContent =
-    `${limits.searches_used_today}/${limits.daily_searches} searches today`;
-
   if (!META.can_search) {
     $('go').disabled = true;
+    $('limitPill').textContent = 'searching paused';
+    $('limitPill').className = 'pill warn';
     $('hint').className = 'hint warn';
     $('hint').textContent = META.blocked_reason;
+  } else if (META.credit_warning) {
+    // Low but usable: say so up front, and the confirmation still appears.
+    $('limitPill').textContent = 'confirm before each search';
+    $('limitPill').className = 'pill warn';
+    $('hint').className = 'hint warn';
+    $('hint').textContent = META.credit_warning;
+  } else {
+    $('limitPill').textContent =
+      `up to ${META.estimated_credits} credits per search`;
   }
 }
 
 // The demo renders canned results through the same render() the real app uses,
 // so what a visitor sees is the actual UI, not a mock-up of it.
 function bootDemo() {
-  META = { limits: { max_companies: 5, daily_searches: 2, searches_used_today: 0 },
-           can_search: false, quota: { configured: false } };
+  META = { limits: { max_companies: 5 }, can_search: false,
+           quota: { configured: false }, estimated_credits: 0 };
 
   // /api/meta needs auth, so fill the form statically -- an empty dropdown in
   // the demo looks like a bug rather than a disabled control.
@@ -429,16 +436,24 @@ async function runSearch() {
   $('results').innerHTML = '<div class="empty">Reading company websites…</div>';
   started = Date.now();
 
-  const response = await fetch('/api/search', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const payload = await response.json();
-  if (!response.ok) { finish(payload.error); return; }
+  let response = await postSearch(body);
+  let payload = await response.json();
 
+  if (response.status === 409 && payload.needs_confirmation) {
+    // Deliberately a blocking confirm: spending the last credits should take
+    // a decision, not a glance. Answering yes applies to this search only.
+    if (!window.confirm(payload.error + '\n\nRun the search anyway?')) {
+      finish();
+      $('hint').className = 'hint warn';
+      $('hint').textContent = 'Search cancelled — no credits spent.';
+      return;
+    }
+    response = await postSearch(Object.assign({}, body, { confirm_credits: true }));
+    payload = await response.json();
+  }
+
+  if (!response.ok) { finish(payload.error); return; }
   JOB_ID = payload.job_id;
-  META.limits.searches_used_today = payload.searches_used_today;
-  renderQuota();
 
   let seen = 0;
   const timer = setInterval(async () => {
@@ -465,6 +480,13 @@ async function runSearch() {
       finish();
     }
   }, 1200);
+}
+
+function postSearch(body) {
+  return fetch('/api/search', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
 }
 
 function finish(error) {

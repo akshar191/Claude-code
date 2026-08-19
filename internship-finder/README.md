@@ -109,10 +109,13 @@ finder/
   store.py           SQLite: searches, contacts, cache, rate limits, tokens
 ```
 
-Free tiers are small and the app is public, so spend is capped in five
-independent places: a 30-day provider cache, per-run lookup budgets, a daily
-rate limit counted per session *and* per IP, a server-side cap on companies per
-search, and a quota gate that disables searching when Hunter runs low.
+Free tiers are small and the app is public, so spend is capped in four
+independent places: a 30-day provider cache, per-run lookup budgets, a
+server-side cap on companies per search, and a two-tier quota gate — below
+`MIN_HUNTER_CREDITS` a search is refused outright, and below
+`HUNTER_WARN_CREDITS` it runs only after an explicit confirmation naming what
+it will cost. That confirmation cannot be disabled: the last few credits are
+worth spending on purpose rather than by reflex.
 
 ## Engineering notes
 
@@ -177,7 +180,7 @@ required to run — with none configured you get OpenStreetMap plus site crawlin
 `.env` is gitignored and no key appears anywhere in the repository or its history.
 
 ```bash
-python -m unittest discover -s tests    # 200 tests, all offline
+python -m unittest discover -s tests    # 207 tests, all offline
 ```
 
 Most of those tests exist because something broke in a live run, and several

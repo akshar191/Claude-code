@@ -20,6 +20,7 @@ import csv  # noqa: E402
 import datetime  # noqa: E402
 import functools  # noqa: E402
 import io  # noqa: E402
+import json  # noqa: E402
 import logging  # noqa: E402
 import secrets  # noqa: E402
 import threading  # noqa: E402
@@ -44,6 +45,7 @@ from finder import (  # noqa: E402
     pipeline,
     providers,
     research,
+    sample,
     store,
     verify,
 )
@@ -207,7 +209,21 @@ def search_allowed():
 @app.route("/")
 @login_required
 def index():
-    return render_template("index.html")
+    return render_template("index.html", demo=False)
+
+
+@app.route("/demo")
+def demo():
+    """Public, unauthenticated, and makes no API calls.
+
+    The working app is behind a password so strangers cannot spend the API
+    budget, which also makes it impossible to show anyone. This renders canned
+    results through the real UI so the confidence model and the drafting flow
+    are visible without an account. Every row is invented -- see finder/sample.py.
+    """
+    return render_template(
+        "index.html", demo=True, demo_payload=json.dumps(sample.payload()),
+    )
 
 
 @app.route("/healthz")

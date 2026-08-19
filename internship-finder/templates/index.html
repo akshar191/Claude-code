@@ -41,6 +41,12 @@
     @media (max-width: 700px) { .tagline { display: none; } }
     header a:hover { color: var(--text); }
 
+    .demo-banner {
+      background: rgba(79,142,247,.10); border-bottom: 1px solid rgba(79,142,247,.3);
+      color: var(--text); font-size: .8rem; padding: .65rem 1.5rem; line-height: 1.5;
+    }
+    .demo-banner strong { color: var(--accent); }
+
     .wrap { max-width: 1180px; margin: 0 auto; padding: 1.5rem;
             display: grid; grid-template-columns: 300px 1fr; gap: 1.25rem;
             align-items: start; }
@@ -208,8 +214,16 @@
   <div class="spacer"></div>
   <span class="pill" id="quotaPill">checking quota…</span>
   <span class="pill" id="limitPill"></span>
-  <a href="/logout">Sign out</a>
+  {% if demo %}<span class="pill">public demo</span>{% else %}<a href="/logout">Sign out</a>{% endif %}
 </header>
+
+{% if demo %}
+<div class="demo-banner">
+  <strong>Sample data.</strong> Every company and person below is invented — a
+  public page should not publish real people's email addresses. The confidence
+  scores, sources and drafts are the real ones the tool produces.
+</div>
+{% endif %}
 
 <div class="wrap">
   <aside>
@@ -306,6 +320,7 @@
 </dialog>
 
 <script>
+{% if demo %}window.DEMO = {{ demo_payload|safe }};{% endif %}
 const $ = (id) => document.getElementById(id);
 let META = {};
 let JOB_ID = null;
@@ -314,6 +329,7 @@ let ROWS = [];
 let DRAFT = null;
 
 async function boot() {
+  if (window.DEMO) return bootDemo();
   const response = await fetch('/api/meta');
   if (response.status === 401) { window.location = '/login'; return; }
   META = await response.json();
@@ -354,6 +370,37 @@ function renderQuota() {
     $('hint').className = 'hint warn';
     $('hint').textContent = META.blocked_reason;
   }
+}
+
+// The demo renders canned results through the same render() the real app uses,
+// so what a visitor sees is the actual UI, not a mock-up of it.
+function bootDemo() {
+  META = { limits: { max_companies: 5, daily_searches: 2, searches_used_today: 0 },
+           can_search: false, quota: { configured: false } };
+
+  // /api/meta needs auth, so fill the form statically -- an empty dropdown in
+  // the demo looks like a bug rather than a disabled control.
+  $('industry').innerHTML = [
+    ['robotics', 'Robotics / Automation'],
+    ['mechanical_engineering', 'Mechanical Engineering'],
+    ['medical_devices', 'Medical Devices'],
+    ['aerospace', 'Aerospace / Defense'],
+    ['software', 'Software / Tech'],
+  ].map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+  $('seniority').innerHTML = [
+    [5, 'Founder / CEO'], [4, 'C-suite / VP / Partner'], [3, 'Director'],
+    [2, 'Manager / Senior IC'],
+  ].map(([v, l]) => `<option value="${v}">${l} and up</option>`).join('');
+  $('seniority').value = 3;
+  $('industry').value = 'robotics';
+  $('quotaPill').textContent = 'demo — no API calls';
+  $('limitPill').textContent = 'sample data';
+  $('go').disabled = true;
+  $('go').textContent = 'Search disabled in demo';
+  $('hint').textContent = 'The live app runs a real search here. This page shows ' +
+    'saved results so you can see the output without an account.';
+  ROWS = [];
+  render(window.DEMO.companies, window.DEMO.notes);
 }
 
 function criteria() {
@@ -547,11 +594,19 @@ async function openDraft(index) {
   setStatus('');
   $('draftDlg').showModal();
 
-  const response = await fetch('/api/research', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contact: row.contact, company: row.company }),
-  });
-  const drafted = await response.json();
+  let response, drafted;
+  if (window.DEMO) {
+    const canned = window.DEMO.drafts[row.contact.email];
+    // A contact with no canned draft demonstrates the refusal path.
+    drafted = canned || window.DEMO.refusal;
+    response = { ok: !!canned, status: canned ? 200 : 422 };
+  } else {
+    response = await fetch('/api/research', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contact: row.contact, company: row.company }),
+    });
+    drafted = await response.json();
+  }
   if (!response.ok) {
     // Refused rather than writing a generic email. Say why, and offer the
     // page it read so the user can grab a detail by hand.
@@ -628,6 +683,10 @@ function setStatus(message, kind) {
 
 async function saveToGmail() {
   if (!DRAFT) return;
+  if (window.DEMO) {
+    setStatus('Gmail saving is disabled in the demo.', 'bad');
+    return;
+  }
   setStatus('Saving…');
   const response = await fetch('/api/gmail/draft', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -665,8 +724,28 @@ $('dlgGmail').addEventListener('click', saveToGmail);
 
 $('go').addEventListener('click', runSearch);
 $('csv').addEventListener('click', () => {
+  if (window.DEMO) return downloadDemoCsv();
   if (JOB_ID) window.location = '/api/export.csv?job_id=' + encodeURIComponent(JOB_ID);
 });
+
+function downloadDemoCsv() {
+  const columns = ['name', 'title', 'company', 'email', 'confidence', 'source',
+                   'company_url', 'how_we_got_it'];
+  const escape = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const lines = [columns.join(',')];
+  ROWS.forEach(({ company, contact }) => lines.push([
+    contact.name, contact.title, company.name, contact.email,
+    contact.email_confidence, contact.source, company.website, contact.email_basis,
+  ].map(escape).join(',')));
+
+  const url = URL.createObjectURL(
+    new Blob([lines.join('\n')], { type: 'text/csv' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'coldstart-sample.csv';
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
 boot();
 </script>

@@ -231,3 +231,50 @@ class SessionCookieHardening(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class PublicDemo(unittest.TestCase):
+    """The demo link is the one that gets shared, so it must work signed out."""
+
+    def setUp(self):
+        web_app.app.config["TESTING"] = True
+        store.init_db()
+        config.APP_PASSWORD = "test-password"
+        self.client = web_app.app.test_client()  # deliberately not signed in
+
+    def test_demo_is_public(self):
+        response = self.client.get("/demo")
+        self.assertEqual(response.status_code, 200)
+
+    def test_demo_says_it_is_sample_data(self):
+        body = self.client.get("/demo").get_data(as_text=True)
+        self.assertIn("Sample data", body)
+        self.assertIn("invented", body)
+
+    def test_demo_shows_the_confidence_range(self):
+        body = self.client.get("/demo").get_data(as_text=True)
+        # At least one verified and one unconfirmed, so the model is visible.
+        self.assertIn("0.95", body)
+        self.assertIn("0.34", body)
+
+    def test_demo_uses_no_real_addresses(self):
+        from finder import sample
+
+        for company in sample.COMPANIES:
+            self.assertTrue(company["domain"].endswith(".example"),
+                            "demo data must not carry a real domain")
+            for contact in company["contacts"]:
+                self.assertTrue(contact["email"].endswith(".example"))
+
+    def test_demo_does_not_expose_the_real_app(self):
+        # Everything else still needs the password.
+        self.assertEqual(self.client.get("/").status_code, 302)
+        self.assertEqual(self.client.get("/api/meta").status_code, 401)
+
+    def test_demo_needs_no_api_keys(self):
+        original = config.HUNTER_API_KEY
+        config.HUNTER_API_KEY = ""
+        try:
+            self.assertEqual(self.client.get("/demo").status_code, 200)
+        finally:
+            config.HUNTER_API_KEY = original

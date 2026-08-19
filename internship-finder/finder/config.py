@@ -86,7 +86,7 @@ GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.compose"
 # correctly straight after "I'm " / "I'm also ".
 APPLICANT = {
     "name": os.environ.get("APPLICANT_NAME", "").strip(),
-    "year": os.environ.get("APPLICANT_YEAR", "high school junior").strip(),
+    "year": os.environ.get("APPLICANT_YEAR", "high school senior").strip(),
     "town": os.environ.get("APPLICANT_TOWN", "Ashland, MA").strip(),
     "work": os.environ.get(
         "APPLICANT_WORK",

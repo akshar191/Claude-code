@@ -2,262 +2,191 @@
 
 **Find the people behind the companies.**
 
-Finds small companies in a given field and city, works out who's senior enough
-there to answer a cold email, and finds their email address — labelling every
-address with how confident it is and *why*. Then drafts the email, using
-something specific the company says about itself.
+[**Live demo →**](https://internship-finder.onrender.com/demo) (sample data, no login)
 
-It does not find job listings. It finds companies, and the humans at them you
-could actually reach. The useful targets are 10–50 person companies whose
-founder reads their own inbox, and the hard part is getting from "this company
-looks interesting" to "here is a person and an address".
+![ColdStart results table](docs/screenshot.png)
 
-```bash
-python app.py     # web UI
-python cli.py     # same thing, scriptable
-python demo.py    # offline demo, no keys, no network
+## The problem
+
+Cold outreach to small companies works — a founder at a 20-person shop reads
+their own inbox — but the useful targets are invisible. Job boards list openings
+at companies big enough to have job boards. The interesting 10–50 person firms
+have no listings, no recruiter, and no obvious way in.
+
+The hard part isn't writing the email. It's getting from *"this company looks
+interesting"* to *"here is a person, here is their address, and here is
+something true to say to them."* ColdStart does that, and tells you how much to
+trust each answer.
+
+Commercial tools (Apollo, RocketReach, Hunter) sell contact data to sales teams
+with budgets. This runs on free tiers, filters *for* small companies rather than
+against them, and never presents a guess as a fact.
+
+## How it works
+
+```
+criteria (field, city, headcount, seniority)
+    │
+    ├─► discovery ─── Google Places · Apollo · OpenStreetMap → merge by domain
+    │
+    ├─► per company, in a thread pool:
+    │     crawl /team, /leadership, /about   → name + title pairs, ranked 1–5
+    │     Hunter domain-search               → the company's address format
+    │     pattern inference                  → {f}{last} learned from real data
+    │     Hunter email-finder                → that specific person's address
+    │     verify                             → syntax → MX → Hunter verifier
+    │
+    └─► ranked contacts → SQLite → web UI / CSV / Gmail draft
 ```
 
-## What problem it actually solves
+A search takes a minute or more (one request per host per second, deliberately),
+so `POST /api/search` starts a worker thread and returns a job id the page polls.
+That's also why it runs **one gunicorn worker with threads** — the job registry
+lives in process memory.
 
-Commercial tools (Apollo, RocketReach, Hunter) will sell you contact data, but
-they are built for sales teams with budgets, and their free tiers are small.
-This does three things they don't:
+## Data sources, and why each
 
-1. **Runs with no API keys at all.** The free path — OpenStreetMap for discovery
-   plus crawling each company's own site — finds people and addresses without a
-   subscription. Keys make it better; they aren't required.
-2. **Filters for small.** The entire point is companies where a cold email
-   reaches a decision-maker rather than an applicant-tracking system.
-3. **Never presents a guess as a fact.** Every address carries a confidence
-   score and a plain-English basis. A guessed address says so.
+| Source | Why it's here |
+|---|---|
+| **Google Places** | Best recall for local businesses by far. Took a Boston search from 4 candidates to 37. |
+| **Hunter.io** | The only cheap way to learn a company's address format. Turns a 20%-confidence guess into an 85% derived address. |
+| **Company websites** | Small companies list their leadership publicly. This is the free path, and often the most accurate one. |
+| **Apollo** | The only source with a true employee-count filter. Optional. |
+| **OpenStreetMap** | Free, no key — but both public Overpass mirrors time out routinely, so it's **off by default**. |
+| **LinkedIn** | Deliberately not scraped. It breaks their terms and gets accounts banned; profile URLs go to RocketReach's API instead. |
+
+## The confidence model
+
+Every address carries a score and a plain-English basis, because the difference
+between them is the difference between a reply and a bounce.
+
+| Tier | Score | Where it came from |
+|---|---|---|
+| **Verified** | 85%+ | Published on the company's own site, or confirmed by Hunter |
+| **Probable** | 55–84% | Built from a pattern proven by a real address at that domain |
+| **Unconfirmed** | <55% | Base-rate guessing. **Off by default** — these bounce |
+
+This distinction is the whole point. A bounce on a cold introduction doesn't just
+fail, it spends a contact you only get to approach once. So the tool would rather
+return three addresses it can stand behind than twenty it can't, and the UI colours
+them so a guess can never be mistaken for a verified address.
+
+Tiering is driven by the score, not by which provider supplied it — Hunter
+returning something at 74% is still a 74% address.
+
+## Drafting
+
+The draft button reads the company's own site, pulls out a sentence making a
+checkable claim, and references it in plain language: *"What interests me about
+Halbrook is your work on direct-drive linear stages for semiconductor
+inspection."* Never a block quote — pasting a company's marketing copy back at
+the person who wrote it is worse than saying nothing.
+
+The ask adapts to seniority: founders and VPs get a direct internship ask;
+directors and engineers get a question about their work and no ask, because
+asking them for a job is asking the wrong person.
+
+Gmail integration saves drafts and **cannot send** — the OAuth scope is
+`gmail.compose`, asserted by a test.
+
+If research finds nothing specific, it **refuses to draft** rather than
+returning something generic.
 
 ## Architecture
 
 ```
-        criteria (field, city, size, seniority)
-                        │
-        ┌───────────────▼────────────────┐
-        │  companies.discover()          │   Apollo ─┐
-        │  merge + dedupe by domain      │   Places ─┼─► one company list
-        └───────────────┬────────────────┘   OSM    ─┘
-                        │
-        ┌───────────────▼────────────────┐
-        │  per company, in a thread pool │
-        │                                │
-        │  people.from_website()   ──────┼──► crawl /team, /leadership, /about
-        │  people.from_providers() ──────┼──► Hunter domain-search, Apollo
-        │  emails.infer_pattern()  ──────┼──► learn {f}{last} from real data
-        │  providers.hunter_email_finder ┼──► ask Hunter about this person
-        │  verify.verify()         ──────┼──► syntax → MX → Hunter verifier
-        └───────────────┬────────────────┘
-                        │
-                  ranked contacts ──► SQLite ──► web UI / CSV
+app.py               Flask UI + JSON API, password gate, rate limits, /demo
+cli.py               command-line entry point
+finder/
+  pipeline.py        orchestration, background jobs, per-run API budgets
+  companies.py       discovery, merging, size + directory filtering
+  people.py          site crawl, name/title extraction, seniority ranking
+  emails.py          harvesting, pattern inference, candidate generation
+  verify.py          syntax / MX / Hunter verifier / optional SMTP
+  research.py        reads a site for specific, quotable claims
+  outreach.py        drafting, phrasing, and the refusal rules
+  providers.py       Hunter, Apollo, RocketReach, Places + 30-day cache
+  store.py           SQLite: searches, contacts, cache, rate limits, tokens
 ```
 
-### Module map
+Free tiers are small and the app is public, so spend is capped in five
+independent places: a 30-day provider cache, per-run lookup budgets, a daily
+rate limit counted per session *and* per IP, a server-side cap on companies per
+search, and a quota gate that disables searching when Hunter runs low.
 
-| File | Responsibility |
-|---|---|
-| `app.py` | Flask UI + JSON API, password gate, rate limits |
-| `finder/research.py` | Reads a company site for quotable, specific claims |
-| `cli.py` | Command-line entry point |
-| `finder/pipeline.py` | Orchestration; background jobs; per-run budgets |
-| `finder/companies.py` | Discovery, merging, size + directory filtering |
-| `finder/people.py` | Site crawl, name/title extraction, seniority |
-| `finder/emails.py` | Harvesting, pattern inference, candidate generation |
-| `finder/verify.py` | Syntax / MX / Hunter verifier / optional SMTP |
-| `finder/providers.py` | Hunter, Apollo, RocketReach, Google Places + caching |
-| `finder/store.py` | SQLite: searches, contacts, provider cache, rate limits |
-| `finder/industries.py` | Field taxonomy and the 1–5 seniority ladder |
-| `finder/outreach.py` | Email drafting |
+## Engineering notes
 
-### How an address is obtained, best first
+**A wrong parameter that returned plausible output.** Every Hunter lookup was
+failing with a 400, and had been from the first commit — I passed `limit=25`
+against a free tier that caps results at 10. The failure was invisible because
+the code degraded exactly as designed: no pattern returned, fall back to
+base-rate guessing, emit an address. Every result looked reasonable and every
+result was a guess. Two things hid it: provider errors were recorded per-company
+and never surfaced, and the fallback was good enough to look like success. The
+fix was one clamped integer; finding it took surfacing the errors first. **A
+silent fallback is a bug that reports itself as working.**
 
-1. **Published on the site.** Scraped from the company's own pages, including
-   Cloudflare-obfuscated `data-cfemail` attributes. ~95%.
-2. **Hunter, per person.** `email-finder` asked about that specific human.
-   Carries Hunter's own score.
-3. **Company pattern.** If a known address maps onto a person we found —
-   `priya.raghavan@` for Priya Raghavan — the format is `{first}.{last}`, and it
-   applies to everyone else at that domain. Hunter's reported `pattern` is used
-   the same way. ~75%.
-4. **Base-rate guessing.** "A third of companies use `first.last`." **Off by
-   default** (`--guess` to enable), because these bounce, and a bounce on a cold
-   introduction is worse than no address.
+**The wrong shape of text.** Research returned nothing on modern company sites.
+The extractor called `get_text(" ")` on the whole page, which is correct for
+prose and useless for marketing sites — those are headings and divs with almost
+no full stops, so the entire page collapsed into one 300-character run-on that
+the length filter then discarded. Reading block by block instead recovers the
+one sentence that mattered. The lesson wasn't about BeautifulSoup: my mental
+model was *pages contain prose*, and real pages contain layout.
 
-Verification then runs syntax → MX → Hunter's verifier (budgeted) → optional
-SMTP probe. Anything not positively confirmed reports `unknown`, never `valid`.
+**Refusing to produce output.** The drafts kept coming out subtly wrong —
+`Hi M Dinne,` from a mangled name, *"your work on the in-house capabilities
+include…"* from a truncated services list. Each had its own fix, but the pattern
+was that a nearly-right email is worse than none: it costs a contact you can
+only approach once, and it reads as automated in a way that no partial fix
+prevents. So the drafter now refuses — on an untrustworthy first name, on
+research that found nothing specific, and on any body failing a final grammar
+check — and explains why instead of handing back something to fix by hand.
+**Knowing when not to answer is a feature.**
 
-### Why the searches run in the background
+## What I'd build next
 
-A search reads several pages per company at one request per second per host, so
-it takes a minute or more — longer than a platform will hold an HTTP request
-open. `POST /api/search` starts a worker thread and returns a job id;
-`GET /api/search/<id>` returns status, progress lines and partial results, and
-the page polls it.
+- **Headless-browser fetch** for JavaScript-rendered sites, which currently
+  return nothing and are correctly but unhelpfully refused.
+- **Bounce feedback**: mark an address dead and automatically re-rank the
+  alternates for that domain.
+- **Warm-intro detection** — flag contacts who share a school or employer.
+- **Postgres** instead of SQLite, so the cache and outreach history survive a
+  deploy on Render's ephemeral filesystem.
 
-This is why the service runs **one gunicorn worker with threads**: the job
-registry lives in process memory, so a second worker wouldn't see jobs started
-by the first.
-
-## Drafting an email
-
-Each contact row has a **Draft email** button. Pressing it:
-
-1. **Reads the company's site** (`finder/research.py`) — homepage plus the
-   product/technology/about pages — and pulls out sentences that make a
-   checkable claim. Text is read **block by block**, not by flattening the
-   page: marketing sites are headings and divs with almost no full stops, and
-   flattening one produces a single run-on that no filter can use. Sentences
-   are scored — first-person claims ("We build…"), "X is a Y" definitions, and
-   numbers score up; marketing filler ("world-class", "cutting-edge") and
-   boilerplate ("all rights reserved") score zero.
-2. **Checks the greeting name.** A first name that is a bare initial, contains
-   a period, is under three characters, or looks like two fields run together
-   ("M Dinne") stops the draft. "Hi M Dinne," announces an email as automated
-   before anything else is read, and there is no safe way to guess — so it asks
-   you to verify the name instead. There is no "Hi there," fallback either.
-3. **Refuses if it found nothing.** No specific detail means no email. The API
-   returns 422 with what it fetched, how many blocks it read, and why each
-   candidate was rejected. A generic email dressed up as a personal one is
-   worse than none: the contact is spent either way, and the generic version
-   guarantees no reply.
-4. **Writes the email** (`outreach.internship_draft`) **referencing** the detail
-   in plain language — "What interests me about X is your work on Y" — never
-   quoting it. Pasting a company's own marketing copy back at the person who
-   wrote it is worse than saying nothing. `outreach.reference_phrase` reduces a
-   site sentence to a noun phrase that reads as your own words, and flags the
-   ones it could not normalise so you rewrite them yourself. Capability lists
-   ("our in-house capabilities include machining, assembly, and…") are rejected
-   at both the research and phrasing stages: they are a menu of services, not a
-   claim about a thing they build, and they cannot be referenced grammatically.
-   If the first detail fails these checks the second is tried before refusing. Your background
-   comes from `APPLICANT_*` config, inserted **exactly as written**.
-5. **Adapts the ask to seniority.** Rank 4 and up (founder, CEO, VP, partner)
-   can actually say yes, so they get the direct internship ask. Below that —
-   directors, managers, engineers — the email asks about their work and makes
-   no request, because asking them for a job is asking the wrong person.
-6. **Shows it in an editable textarea.** The raw claim and the URL it came from
-   sit beside the draft — not inside the email — so you can check the one thing
-   a machine inferred from a web page. The address confidence is shown up front,
-   and below ~50% it warns you before you spend time editing a draft to an
-   address that will probably bounce.
-7. **Says nothing about the outreach itself.** No claims about not mass-mailing,
-   no explaining why you picked them, no narrating the personalisation — an
-   email that insists it is not a template reads as exactly the thing it denies
-   being. Tests assert those phrases never appear.
-8. **Validates the finished email** before returning it. No ellipsis, no
-   doubled prepositions, no unfilled template seams, every sentence terminated.
-   A draft that fails is thrown away rather than handed over.
-9. **Saves to Gmail Drafts** — never sends.
-
-### Gmail scope
-
-The OAuth scope requested is `gmail.compose` and nothing else. That permits
-creating a draft; it does not permit sending. Even a stolen token cannot mail
-anyone from the account. A test asserts `gmail.send` never appears in the
-consent URL.
-
-Tokens are stored in SQLite keyed by session, not in the cookie — Flask session
-cookies are signed but not encrypted, and a refresh token does not belong in
-something the browser can read.
-
-Marking a draft as created sets the contact's status to `contacted`, which flows
-through to the `contacted_on` / `replied` / `notes` columns in the CSV.
-
-## Cost control
-
-The free tiers are small (Hunter is 50 lookups/month), and this is deployed
-publicly, so spending is capped in several independent places:
-
-- **Provider cache** — Hunter `domain-search` and `email-finder` responses are
-  cached in SQLite for 30 days, so a repeated search costs nothing.
-- **Per-run budgets** — `HUNTER_FINDER_BUDGET` (6) per-person lookups and
-  `HUNTER_VERIFY_BUDGET` (10) verifications per search.
-- **Rate limits** — `DAILY_SEARCH_LIMIT` (2) per session *and* per IP, whichever
-  is stricter, so clearing cookies gains little.
-- **Hard cap** — `MAX_COMPANIES_PER_SEARCH` (5), enforced server-side.
-- **Quota gate** — when fewer than `MIN_QUOTA_TO_SEARCH` Hunter lookups remain,
-  the search button is disabled with an explanation.
-
-## Rules it follows
-
-- **robots.txt is honoured** on every company site.
-- **One request per host per second**, with an identifying User-Agent.
-- **No LinkedIn scraping.** Profile URLs go to RocketReach's API instead;
-  scraping LinkedIn breaks their terms and gets accounts banned.
-- **Directory sites are skipped.** An accelerator's website lists the founders
-  of *other* companies; scraping one invents contacts at an organisation that
-  never employed them.
-- **SMTP probing is off by default** — most networks block port 25, and
-  aggressive probing gets an IP blocklisted.
-- This is for sending individual, personal emails. Bulk-mailing scraped
-  addresses is a different activity with different laws around it.
-
-## Configuration
-
-Everything comes from environment variables; `.env` is read at startup and is
-gitignored. No key appears anywhere in the repository or its history.
-
-| Variable | Required | Purpose |
-|---|---|---|
-| `APP_PASSWORD` | **yes** | Shared password. Unset ⇒ the app serves nothing |
-| `SECRET_KEY` | production | Signs the session cookie |
-| `HUNTER_API_KEY` | no | Email patterns and per-person lookups |
-| `GOOGLE_PLACES_API_KEY` | no | Much better company discovery than OSM alone |
-| `APOLLO_API_KEY` | no | The only source with a real headcount filter |
-| `ROCKETREACH_API_KEY` | no | LinkedIn URL → address |
-| `CONTACT_EMAIL` | no | Identifies the crawler to sites it reads |
-| `DAILY_SEARCH_LIMIT` | no | Default 2 |
-| `MAX_COMPANIES_PER_SEARCH` | no | Default 5 |
-
-## Local development
+## Running it
 
 ```bash
-cd internship-finder
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-
 echo "APP_PASSWORD=whatever" > .env
-python app.py          # prints the URL it bound to
+python app.py          # or: python demo.py — offline, no keys, no network
 ```
 
-On macOS, ports 5000/5001 belong to AirPlay Receiver; the server steps to the
-next free port and prints where it landed.
-
-## Deployment
-
-Runs on Render as a single web service; see `render.yaml`. The service name
-and URL stay as they were — renaming would break the Gmail OAuth redirect URI. The start command is:
-
-```
-gunicorn app:app --workers 1 --threads 8 --timeout 180 --bind 0.0.0.0:$PORT
-```
-
-**Known limitation:** on Render's free plan the filesystem is ephemeral, so
-SQLite resets on every deploy and restart. Saved searches, the provider cache
-and the rate-limit counters are all lost. Searching still works — the cache just
-starts cold, which costs Hunter credits. A persistent disk or Postgres fixes it.
-
-## Tests
+Everything is configured by environment variable; see `.env.example`. No key is
+required to run — with none configured you get OpenStreetMap plus site crawling.
+`.env` is gitignored and no key appears anywhere in the repository or its history.
 
 ```bash
-python -m unittest discover -s tests
+python -m unittest discover -s tests    # 186 tests, all offline
 ```
 
-180 tests, all offline.
-
-- `test_finder.py` — parsing, title ranking, pattern inference, size and
-  directory filtering, caching, drafting, storage.
-- `test_integration.py` — spins up a local fixture site and runs the whole
-  pipeline: follows the leadership link, obeys robots.txt, takes the published
-  address, learns the pattern, applies it to everyone else.
-- `test_app.py` — the password gate, rate limits, quota gate, CSV columns.
-- `test_drafting.py` — page extraction, the refusal contract, verbatim
-  applicant facts, the no-hedging rule, and the seniority-adaptive ask.
-
-Most tests exist because something failed in a live run. `test_finder.py`
-contains the literal strings that broke it: `PhD CEO & Chairman`,
+Most of those tests exist because something broke in a live run, and several
+contain the literal strings that broke it: `PhD CEO & Chairman`,
 `LEED AP BD+C President Boston`, `Supply Chain`, `M Dinne Flansbury`,
 `Welcoming Hiten Sonpal: RISE Robotics' New CEO`.
+
+## Provenance
+
+The code was written with [Claude Code](https://claude.com/claude-code). I
+specified the behaviour, ran it against real companies, found the bugs described
+above from its actual output, and directed the fixes. The engineering notes are
+my diagnoses of failures I hit while using it, not a summary of the commit log.
+
+## Scope
+
+For sending individual, personal emails. Honours `robots.txt`, rate-limits
+itself to one request per host per second, identifies itself with a real contact
+address, and skips directory sites that list other companies' people.
+Bulk-mailing scraped addresses is a different activity with different laws
+around it, and this is not built for it.

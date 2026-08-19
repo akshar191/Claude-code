@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="ColdStart finds small companies in a field and city, the senior people at them, and a contactable address for each." />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>ColdStart — Find the people behind the companies</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d0f14; --panel: #13161e; --panel2: #1a1e2a; --border: #252936;
+      --accent: #4f8ef7; --accent2: #7b5cf0;
+      --green: #22c55e; --amber: #f59e0b; --red: #ef4444;
+      --text: #e2e8f0; --muted: #64748b; --radius: 12px;
+    }
+
+    html { font-size: 15px; }
+    body {
+      background: var(--bg); color: var(--text); min-height: 100vh; line-height: 1.5;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border); background: var(--panel);
+      padding: .9rem 1.5rem; display: flex; align-items: center; gap: 1rem;
+      flex-wrap: wrap; position: sticky; top: 0; z-index: 10;
+    }
+    header h1 { font-size: 1.05rem; font-weight: 600; }
+    header h1 span { color: var(--accent); }
+    .spacer { margin-left: auto; }
+    .pill {
+      font-size: .72rem; padding: .25rem .6rem; border-radius: 999px;
+      border: 1px solid var(--border); background: var(--panel2); color: var(--muted);
+    }
+    .pill.good { color: var(--green); border-color: rgba(34,197,94,.4); }
+    .pill.warn { color: var(--amber); border-color: rgba(245,158,11,.4); }
+    header a { color: var(--muted); font-size: .75rem; text-decoration: none; }
+    .tagline { font-size: .78rem; color: var(--muted); }
+    @media (max-width: 700px) { .tagline { display: none; } }
+    header a:hover { color: var(--text); }
+
+    .demo-banner {
+      background: rgba(79,142,247,.10); border-bottom: 1px solid rgba(79,142,247,.3);
+      color: var(--text); font-size: .8rem; padding: .65rem 1.5rem; line-height: 1.5;
+    }
+    .demo-banner strong { color: var(--accent); }
+
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 1.5rem;
+            display: grid; grid-template-columns: 300px 1fr; gap: 1.25rem;
+            align-items: start; }
+    @media (max-width: 880px) { .wrap { grid-template-columns: 1fr; } }
+
+    .card {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.1rem;
+    }
+    .card + .card { margin-top: 1rem; }
+    .card h2 {
+      font-size: .72rem; text-transform: uppercase; letter-spacing: .09em;
+      color: var(--muted); margin-bottom: .9rem; font-weight: 600;
+    }
+
+    label { display: block; font-size: .74rem; color: var(--muted); margin: .7rem 0 .25rem; }
+    input, select {
+      width: 100%; background: var(--panel2); border: 1px solid var(--border);
+      color: var(--text); border-radius: 8px; padding: .5rem .6rem;
+      font: inherit; font-size: .85rem;
+    }
+    input:focus, select:focus { outline: none; border-color: var(--accent); }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+
+    button {
+      font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--panel2); color: var(--text); padding: .45rem .8rem; font-size: .82rem;
+    }
+    button:hover:not(:disabled) { border-color: var(--accent); }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .primary {
+      width: 100%; margin-top: 1.1rem; padding: .7rem; font-weight: 600; border: none;
+      background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff;
+    }
+    .primary:disabled { background: var(--panel2); color: var(--muted); border: 1px solid var(--border); }
+
+    .hint { font-size: .72rem; color: var(--muted); margin-top: .55rem; line-height: 1.5; }
+    .hint.warn { color: var(--amber); }
+
+    /* progress */
+    #progress { display: none; }
+    .bar { height: 4px; background: var(--panel2); border-radius: 999px; overflow: hidden; margin-bottom: .8rem; }
+    .bar i { display: block; height: 100%; width: 30%; border-radius: 999px;
+             background: linear-gradient(90deg, var(--accent), var(--accent2));
+             animation: slide 1.4s ease-in-out infinite; }
+    @keyframes slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+    .stat-row { display: flex; gap: 1.5rem; margin-bottom: .8rem; flex-wrap: wrap; }
+    .stat b { display: block; font-size: 1.35rem; font-weight: 600; }
+    .stat span { font-size: .7rem; color: var(--muted); text-transform: uppercase;
+                 letter-spacing: .06em; }
+    #log {
+      font-family: ui-monospace, Menlo, monospace; font-size: .72rem; color: var(--muted);
+      max-height: 160px; overflow-y: auto; border-top: 1px solid var(--border);
+      padding-top: .6rem;
+    }
+    #log div { padding: .08rem 0; }
+
+    /* results */
+    .toolbar { display: flex; align-items: center; gap: .6rem; margin-bottom: .9rem; flex-wrap: wrap; }
+    .toolbar h2 { font-size: .95rem; font-weight: 600; color: var(--text);
+                  text-transform: none; letter-spacing: 0; margin: 0; }
+
+    table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+    thead th {
+      text-align: left; font-size: .68rem; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); font-weight: 600; padding: .5rem .6rem;
+      border-bottom: 1px solid var(--border); white-space: nowrap;
+    }
+    tbody td { padding: .6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tbody tr:hover { background: rgba(79,142,247,.04); }
+    .who { font-weight: 500; }
+    .role { font-size: .74rem; color: var(--muted); }
+    .co a { color: var(--accent); text-decoration: none; font-size: .8rem; }
+    .co a:hover { text-decoration: underline; }
+    .mail { font-family: ui-monospace, Menlo, monospace; font-size: .78rem; word-break: break-all; }
+    .mail button { padding: .1rem .35rem; font-size: .66rem; margin-left: .3rem; }
+
+    /* confidence: the whole point is that a guess never looks verified */
+    .conf { min-width: 132px; }
+    .conf-top { display: flex; align-items: center; gap: .4rem; }
+    .conf-num { font-variant-numeric: tabular-nums; font-weight: 600; font-size: .82rem; }
+    .conf-track { height: 5px; background: var(--panel2); border-radius: 999px;
+                  overflow: hidden; margin-top: .3rem; }
+    .conf-track i { display: block; height: 100%; border-radius: 999px; }
+    .conf-label { font-size: .66rem; text-transform: uppercase; letter-spacing: .05em; }
+    .tier-verified .conf-num, .tier-verified .conf-label { color: var(--green); }
+    .tier-verified .conf-track i { background: var(--green); }
+    .tier-derived .conf-num, .tier-derived .conf-label { color: var(--amber); }
+    .tier-derived .conf-track i { background: var(--amber); }
+    .tier-guess .conf-num, .tier-guess .conf-label { color: var(--red); }
+    .tier-guess .conf-track i { background: var(--red); }
+    .basis { font-size: .68rem; color: var(--muted); margin-top: .2rem; }
+
+    .src { font-size: .7rem; color: var(--muted); white-space: nowrap; }
+
+    /* Long values must not blow up the column. Truncate, full text on hover. */
+    .clip { display: block; max-width: 100%; overflow: hidden;
+            text-overflow: ellipsis; white-space: nowrap; }
+    td.person { max-width: 190px; }
+    td.co     { max-width: 190px; }
+    td.email  { max-width: 260px; }
+    .mailrow { display: flex; align-items: center; gap: .35rem; }
+    .mailrow .clip { flex: 1 1 auto; min-width: 0; }
+    .mailrow button { flex: 0 0 auto; }
+
+    /* provider notes, collapsed by default */
+    details.diag { margin-bottom: .9rem; }
+    details.diag summary {
+      cursor: pointer; font-size: .74rem; color: var(--muted);
+      list-style: none; display: inline-flex; align-items: center; gap: .35rem;
+    }
+    details.diag summary::-webkit-details-marker { display: none; }
+    details.diag summary::before { content: '▸'; font-size: .65rem; }
+    details.diag[open] summary::before { content: '▾'; }
+    details.diag summary:hover { color: var(--text); }
+    details.diag .body {
+      margin-top: .5rem; padding: .6rem .7rem; background: var(--panel);
+      border: 1px solid var(--border); border-radius: 8px;
+      font-family: ui-monospace, Menlo, monospace; font-size: .7rem;
+      color: var(--muted); line-height: 1.6;
+    }
+
+    dialog {
+      border: 1px solid var(--border); background: var(--panel); color: var(--text);
+      border-radius: 14px; padding: 1.25rem; width: min(680px, 94vw);
+      box-shadow: 0 10px 50px rgba(0,0,0,.6);
+    }
+    dialog::backdrop { background: rgba(0,0,0,.65); }
+    dialog h3 { font-size: 1rem; margin-bottom: .2rem; }
+    dialog .to { font-size: .78rem; color: var(--muted); margin-bottom: .9rem; }
+    dialog textarea {
+      width: 100%; min-height: 300px; background: var(--panel2); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px; padding: .7rem;
+      font-family: ui-monospace, Menlo, monospace; font-size: .8rem;
+      line-height: 1.6; resize: vertical;
+    }
+    dialog textarea:focus { outline: none; border-color: var(--accent); }
+    .verify {
+      background: rgba(245,158,11,.08); border: 1px solid rgba(245,158,11,.3);
+      border-radius: 8px; padding: .6rem .7rem; margin: .7rem 0; font-size: .76rem;
+    }
+    .verify b { color: var(--amber); display: block; margin-bottom: .25rem;
+                font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; }
+    .verify a { color: var(--accent); font-size: .72rem; }
+    .dlg-actions { display: flex; gap: .5rem; justify-content: flex-end;
+                   margin-top: .9rem; flex-wrap: wrap; }
+    .dlg-actions .spacer { margin-right: auto; }
+    .status { font-size: .74rem; color: var(--muted); }
+    .status.ok { color: var(--green); }
+    .status.bad { color: var(--red); }
+    .empty { color: var(--muted); font-size: .87rem; text-align: center; padding: 3rem 1rem; }
+    .notes { font-size: .75rem; color: var(--amber); margin-bottom: .9rem; }
+    .notes div { margin-bottom: .15rem; }
+    .legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: .7rem;
+              color: var(--muted); margin-top: .9rem; }
+    .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+                margin-right: .3rem; vertical-align: middle; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Cold<span>Start</span></h1>
+  <span class="tagline">Find the people behind the companies</span>
+  <div class="spacer"></div>
+  <span class="pill" id="quotaPill">checking quota…</span>
+  <span class="pill" id="limitPill"></span>
+  {% if demo %}<span class="pill">public demo</span>{% else %}<a href="/logout">Sign out</a>{% endif %}
+</header>
+
+{% if demo %}
+<div class="demo-banner">
+  <strong>Sample data.</strong> Every company and person below is invented — a
+  public page should not publish real people's email addresses. The confidence
+  scores, sources and drafts are the real ones the tool produces.
+</div>
+{% endif %}
+
+<div class="wrap">
+  <aside>
+    <div class="card">
+      <h2>Search</h2>
+      <label for="industry">Field</label>
+      <select id="industry"></select>
+
+      <label for="location">City / region</label>
+      <input id="location" placeholder="Boston, MA" value="Boston, MA" />
+
+      <label for="keyword">Extra keyword (optional)</label>
+      <input id="keyword" placeholder="e.g. medical devices" />
+
+      <div class="row">
+        <div>
+          <label for="maxEmp">Max employees</label>
+          <input id="maxEmp" type="number" min="1" value="200" />
+        </div>
+        <div>
+          <label for="maxCo">Companies</label>
+          <input id="maxCo" type="number" min="1" value="5" />
+        </div>
+      </div>
+
+      <label for="seniority">Most junior person worth emailing</label>
+      <select id="seniority"></select>
+
+      <button class="primary" id="go">Find companies</button>
+      <div class="hint" id="hint">A search reads each company's website at a
+        polite one request per second, so it takes a minute or two.</div>
+    </div>
+
+    <div class="card" id="progress">
+      <h2>Working</h2>
+      <div class="bar"><i></i></div>
+      <div class="stat-row">
+        <div class="stat"><b id="statCompanies">0</b><span>companies</span></div>
+        <div class="stat"><b id="statContacts">0</b><span>contacts</span></div>
+        <div class="stat"><b id="statElapsed">0s</b><span>elapsed</span></div>
+      </div>
+      <div id="log"></div>
+    </div>
+  </aside>
+
+  <main>
+    <div id="notes" class="notes"></div>
+    <div class="toolbar">
+      <h2 id="resultsTitle">Results</h2>
+      <div class="spacer"></div>
+      <button id="csv" disabled>Download CSV</button>
+    </div>
+    <div id="results">
+      <div class="empty">Pick a field and a city, then hit <strong>Find companies</strong>.</div>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--green)"></i><strong>Verified</strong> (85%+) — published on the site, or confirmed</span>
+      <span><i style="background:var(--amber)"></i><strong>Probable</strong> (55–84%) — built from the company's known format</span>
+      <span><i style="background:var(--red)"></i><strong>Unconfirmed</strong> (&lt;55%) — expect some of these to bounce</span>
+    </div>
+  </main>
+</div>
+
+<dialog id="draftDlg">
+  <h3 id="dlgCompany"></h3>
+  <div class="to" id="dlgTo"></div>
+  <div class="to" id="dlgAsk" style="color:var(--accent)"></div>
+
+  <div id="dlgConf" class="verify" style="display:none"></div>
+
+  <div id="dlgVerify" class="verify" style="display:none">
+    <b>This line came from their site — check it</b>
+    <div id="dlgClaim"></div>
+    <div style="margin-top:.4rem">Referenced in the email as:
+      <span id="dlgRef" style="color:var(--text)"></span></div>
+    <div id="dlgRewrite" style="margin-top:.4rem;color:var(--amber);display:none">
+      Could not rephrase this cleanly — rewrite that sentence in your own words
+      before sending.</div>
+    <div style="margin-top:.4rem"><a id="dlgSource" href="#" target="_blank" rel="noopener"></a></div>
+  </div>
+
+  <label for="dlgSubject">Subject</label>
+  <input id="dlgSubject" />
+  <label for="dlgBody">Body</label>
+  <textarea id="dlgBody"></textarea>
+
+  <div class="dlg-actions">
+    <span class="status spacer" id="dlgStatus"></span>
+    <button id="dlgCopy">Copy</button>
+    <button id="dlgMailto">Open in mail app</button>
+    <button id="dlgGmail">Save to Gmail Drafts</button>
+    <button id="dlgClose">Close</button>
+  </div>
+</dialog>
+
+<script>
+{% if demo %}window.DEMO = {{ demo_payload|safe }};{% endif %}
+const $ = (id) => document.getElementById(id);
+let META = {};
+let JOB_ID = null;
+let started = 0;
+let ROWS = [];
+let DRAFT = null;
+
+async function boot() {
+  if (window.DEMO) return bootDemo();
+  const response = await fetch('/api/meta');
+  if (response.status === 401) { window.location = '/login'; return; }
+  META = await response.json();
+
+  $('industry').innerHTML = META.industries
+    .map((i) => `<option value="${i.value}">${i.label}</option>`).join('');
+  $('industry').value = 'robotics';
+
+  $('seniority').innerHTML = META.seniority_levels
+    .map((s) => `<option value="${s.value}">${s.label} and up</option>`).join('');
+  $('seniority').value = 3;
+
+  $('maxCo').max = META.limits.max_companies;
+  $('maxCo').value = Math.min(+$('maxCo').value, META.limits.max_companies);
+
+  renderQuota();
+}
+
+function renderQuota() {
+  const quota = META.quota || {};
+  const pill = $('quotaPill');
+  if (!quota.configured) {
+    pill.textContent = 'Hunter not configured';
+  } else if (quota.error) {
+    pill.textContent = 'Hunter unavailable';
+    pill.className = 'pill warn';
+  } else {
+    pill.textContent = `Hunter: ${quota.remaining} of ${quota.available} left`;
+    pill.className = 'pill ' + (quota.remaining < 10 ? 'warn' : 'good');
+  }
+
+  if (!META.can_search) {
+    $('go').disabled = true;
+    $('limitPill').textContent = 'searching paused';
+    $('limitPill').className = 'pill warn';
+    $('hint').className = 'hint warn';
+    $('hint').textContent = META.blocked_reason;
+  } else if (META.credit_warning) {
+    // Low but usable: say so up front, and the confirmation still appears.
+    $('limitPill').textContent = 'confirm before each search';
+    $('limitPill').className = 'pill warn';
+    $('hint').className = 'hint warn';
+    $('hint').textContent = META.credit_warning;
+  } else {
+    $('limitPill').textContent =
+      `up to ${META.estimated_credits} credits per search`;
+  }
+}
+
+// The demo renders canned results through the same render() the real app uses,
+// so what a visitor sees is the actual UI, not a mock-up of it.
+function bootDemo() {
+  META = { limits: { max_companies: 5 }, can_search: false,
+           quota: { configured: false }, estimated_credits: 0 };
+
+  // /api/meta needs auth, so fill the form statically -- an empty dropdown in
+  // the demo looks like a bug rather than a disabled control.
+  $('industry').innerHTML = [
+    ['robotics', 'Robotics / Automation'],
+    ['mechanical_engineering', 'Mechanical Engineering'],
+    ['medical_devices', 'Medical Devices'],
+    ['aerospace', 'Aerospace / Defense'],
+    ['software', 'Software / Tech'],
+  ].map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+  $('seniority').innerHTML = [
+    [5, 'Founder / CEO'], [4, 'C-suite / VP / Partner'], [3, 'Director'],
+    [2, 'Manager / Senior IC'],
+  ].map(([v, l]) => `<option value="${v}">${l} and up</option>`).join('');
+  $('seniority').value = 3;
+  $('industry').value = 'robotics';
+  $('quotaPill').textContent = 'demo — no API calls';
+  $('limitPill').textContent = 'sample data';
+  $('go').disabled = true;
+  $('go').textContent = 'Search disabled in demo';
+  $('hint').textContent = 'The live app runs a real search here. This page shows ' +
+    'saved results so you can see the output without an account.';
+  ROWS = [];
+  render(window.DEMO.companies, window.DEMO.notes);
+}
+
+function criteria() {
+  return {
+    industry: $('industry').value,
+    location: $('location').value.trim(),
+    keyword: $('keyword').value.trim(),
+    max_employees: +$('maxEmp').value || 200,
+    max_companies: Math.min(+$('maxCo').value || 5, META.limits.max_companies),
+    min_seniority: +$('seniority').value,
+    contacts_per_company: 3,
+    verify_emails: true,
+  };
+}
+
+async function runSearch() {
+  const body = criteria();
+  if (!body.location && !body.keyword) { alert('Give me a city or a keyword.'); return; }
+
+  $('go').disabled = true;
+  $('go').textContent = 'Searching…';
+  $('progress').style.display = 'block';
+  $('log').innerHTML = '';
+  $('notes').innerHTML = '';
+  $('csv').disabled = true;
+  $('results').innerHTML = '<div class="empty">Reading company websites…</div>';
+  started = Date.now();
+
+  let response = await postSearch(body);
+  let payload = await response.json();
+
+  if (response.status === 409 && payload.needs_confirmation) {
+    // Deliberately a blocking confirm: spending the last credits should take
+    // a decision, not a glance. Answering yes applies to this search only.
+    if (!window.confirm(payload.error + '\n\nRun the search anyway?')) {
+      finish();
+      $('hint').className = 'hint warn';
+      $('hint').textContent = 'Search cancelled — no credits spent.';
+      return;
+    }
+    response = await postSearch(Object.assign({}, body, { confirm_credits: true }));
+    payload = await response.json();
+  }
+
+  if (!response.ok) { finish(payload.error); return; }
+  JOB_ID = payload.job_id;
+
+  let seen = 0;
+  const timer = setInterval(async () => {
+    const job = await (await fetch('/api/search/' + JOB_ID)).json();
+
+    (job.progress || []).slice(seen).forEach((entry) => {
+      const line = document.createElement('div');
+      line.textContent = entry.message;
+      $('log').appendChild(line);
+    });
+    seen = (job.progress || []).length;
+    $('log').scrollTop = $('log').scrollHeight;
+
+    const companies = job.companies || [];
+    $('statCompanies').textContent = companies.length;
+    $('statContacts').textContent = companies
+      .reduce((total, c) => total + (c.contacts || []).filter((p) => p.email).length, 0);
+    $('statElapsed').textContent = Math.round((Date.now() - started) / 1000) + 's';
+
+    if (job.status !== 'running') {
+      clearInterval(timer);
+      if (job.status === 'error') { finish(job.error); return; }
+      render(companies, job.notes || []);
+      finish();
+    }
+  }, 1200);
+}
+
+function postSearch(body) {
+  return fetch('/api/search', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+function finish(error) {
+  $('go').disabled = !META.can_search;
+  $('go').textContent = 'Find companies';
+  $('progress').style.display = 'none';
+  if (error) {
+    $('results').innerHTML = `<div class="empty">${escapeHtml(error)}</div>`;
+  }
+}
+
+// Tiering is driven by the score, not by who supplied the address. Hunter
+// returning something at 74% is still a 74% address -- painting it green
+// because it came from an API is the exact misreading this is here to prevent.
+function tierOf(contact) {
+  const score = contact.email_confidence || 0;
+  const basis = (contact.email_basis || '').toLowerCase();
+  if (score >= 0.85 || basis.includes('published on the company')) {
+    return { cls: 'tier-verified', label: 'Verified' };
+  }
+  if (score >= 0.55) {
+    return { cls: 'tier-derived', label: 'Probable' };
+  }
+  return { cls: 'tier-guess', label: 'Unconfirmed' };
+}
+
+// Provider trouble (Overpass timeouts, a rate-limited API) is diagnostic, not
+// something to alarm the user with. Server logs it; here it hides behind a toggle.
+function renderNotes(notes) {
+  const list = notes || [];
+  if (!list.length) { $('notes').innerHTML = ''; return; }
+  $('notes').innerHTML = `
+    <details class="diag">
+      <summary>Details (${list.length} note${list.length === 1 ? '' : 's'} from this run)</summary>
+      <div class="body">${list.map((n) => escapeHtml(n)).join('<br>')}</div>
+    </details>`;
+}
+
+function render(companies, notes) {
+  renderNotes(notes);
+
+  const rows = [];
+  companies.forEach((company) => {
+    (company.contacts || []).forEach((contact) => rows.push({ company, contact }));
+  });
+  ROWS = rows;
+
+  $('resultsTitle').textContent =
+    `Results — ${rows.length} contact${rows.length === 1 ? '' : 's'} at ${companies.length} compan${companies.length === 1 ? 'y' : 'ies'}`;
+  $('csv').disabled = rows.length === 0;
+
+  if (!rows.length) {
+    $('results').innerHTML = '<div class="empty">Nothing found. Try a wider field, ' +
+      'a bigger employee ceiling, or a different city.</div>';
+    return;
+  }
+
+  $('results').innerHTML = `
+    <table>
+      <thead><tr>
+        <th>Person</th><th>Company</th><th>Email</th><th>Confidence</th><th>Source</th><th></th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(({ company, contact }, index) => {
+          const tier = tierOf(contact);
+          const pct = Math.round((contact.email_confidence || 0) * 100);
+          const url = company.website ||
+            (company.domain ? 'https://' + company.domain : null);
+          return `<tr>
+            <td class="person">
+              <div class="who clip" title="${escapeHtml(contact.name)}">${escapeHtml(contact.name)}</div>
+              <div class="role clip" title="${escapeHtml(contact.title || '')}">${escapeHtml(contact.title || '')}</div>
+            </td>
+            <td class="co">
+              <div class="clip" title="${escapeHtml(company.name)}">
+                ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(company.name)}</a>`
+                      : escapeHtml(company.name)}
+              </div>
+              <div class="role clip" title="${escapeHtml(company.address || '')}">${escapeHtml(company.address || '')}</div>
+            </td>
+            <td class="email">
+              <div class="mailrow">
+                <span class="mail clip" title="${escapeHtml(contact.email || '')}">${escapeHtml(contact.email || '—')}</span>
+                ${contact.email ? `<button onclick="copyRow(${index})">copy</button>` : ''}
+              </div>
+              <div class="basis clip" title="${escapeHtml(contact.email_basis || '')}">${escapeHtml(contact.email_basis || '')}</div>
+            </td>
+            <td class="conf ${tier.cls}">
+              <div class="conf-top">
+                <span class="conf-num">${pct}%</span>
+                <span class="conf-label">${tier.label}</span>
+              </div>
+              <div class="conf-track"><i style="width:${Math.max(pct, 3)}%"></i></div>
+            </td>
+            <td class="src">${escapeHtml(contact.source || '')}</td>
+            <td>${contact.email ? `<button onclick="openDraft(${index})">Draft email</button>` : ''}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+}
+
+function copyText(value) { navigator.clipboard.writeText(value); }
+
+function escapeHtml(value) {
+  return String(value == null ? '' : value).replace(/[&<>"']/g,
+    (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+function copyRow(index) {
+  const row = ROWS[index];
+  if (row && row.contact.email) navigator.clipboard.writeText(row.contact.email);
+}
+
+async function openDraft(index) {
+  const row = ROWS[index];
+  if (!row) return;
+  DRAFT = row;
+
+  $('dlgCompany').textContent = row.company.name;
+  $('dlgAsk').textContent = '';
+  $('dlgTo').textContent = `To ${row.contact.name} <${row.contact.email}>`;
+  $('dlgSubject').value = '';
+  $('dlgBody').value = 'Reading their website…';
+  $('dlgVerify').style.display = 'none';
+  showConfidence(row.contact);
+  setStatus('');
+  $('draftDlg').showModal();
+
+  let response, drafted;
+  if (window.DEMO) {
+    const canned = window.DEMO.drafts[row.contact.email];
+    // A contact with no canned draft demonstrates the refusal path.
+    drafted = canned || window.DEMO.refusal;
+    response = { ok: !!canned, status: canned ? 200 : 422 };
+  } else {
+    response = await fetch('/api/research', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contact: row.contact, company: row.company }),
+    });
+    drafted = await response.json();
+  }
+  if (!response.ok) {
+    // Refused rather than writing a generic email. Say why, and offer the
+    // page it read so the user can grab a detail by hand.
+    $('dlgSubject').value = '';
+    $('dlgBody').value = '';
+    $('dlgVerify').style.display = 'none';
+    if (drafted.research_failed) {
+      const pages = (drafted.pages_read || []).join('\n');
+      const advice = drafted.kind === 'name'
+        ? 'Check the real spelling on their site or LinkedIn, fix the contact, ' +
+          'then draft again. A wrong greeting is the clearest sign an email was ' +
+          'generated.'
+        : 'No email was generated. Write the specific line yourself, or skip ' +
+          'this contact — a generic email spends the contact for nothing.';
+      $('dlgBody').value =
+        drafted.error + '\n\n' + (drafted.reason || '') +
+        (pages ? '\n\nPages read:\n' + pages : '') + '\n\n' + advice;
+      setStatus(drafted.kind === 'name' ? 'Name looks unreliable — no draft.'
+                : 'No draft generated.', 'bad');
+    } else {
+      setStatus(drafted.error || 'failed', 'bad');
+    }
+    return;
+  }
+
+  $('dlgSubject').value = drafted.subject || '';
+  $('dlgBody').value = drafted.body || '';
+  DRAFT.drafted = drafted;
+  $('dlgAsk').textContent = drafted.ask === 'internship'
+    ? 'Direct internship ask — this person can say yes.'
+    : 'No ask — this person is not the decision-maker, so it asks about their work.';
+
+  if (drafted.source_claim) {
+    $('dlgClaim').textContent = drafted.source_claim;
+    $('dlgRef').textContent = 'your work on ' + (drafted.reference || '');
+    $('dlgRewrite').style.display = drafted.reference_normalised ? 'none' : 'block';
+    const source = drafted.source_url || '';
+    $('dlgSource').href = source || '#';
+    $('dlgSource').textContent = source ? 'Source: ' + source : '';
+    $('dlgSource').style.display = source ? 'inline' : 'none';
+    $('dlgVerify').style.display = 'block';
+  }
+}
+
+// Say up front how good the address is: editing a careful email to something
+// that will bounce is the most expensive way to waste time here.
+function showConfidence(contact) {
+  const pct = Math.round((contact.email_confidence || 0) * 100);
+  const tier = tierOf(contact);
+  const panel = $('dlgConf');
+  panel.style.display = 'block';
+
+  if (pct < 50) {
+    panel.style.background = 'rgba(239,68,68,.10)';
+    panel.style.borderColor = 'rgba(239,68,68,.35)';
+    panel.innerHTML =
+      '<b style="color:var(--red)">Low confidence address — ' + pct + '%</b>' +
+      escapeHtml(contact.email || '') + ' is ' + tier.label.toLowerCase() +
+      '. Roughly one in two addresses at this level bounce. Consider verifying it ' +
+      'before spending time on the draft.';
+  } else {
+    panel.style.background = 'rgba(34,197,94,.07)';
+    panel.style.borderColor = 'rgba(34,197,94,.28)';
+    panel.innerHTML =
+      '<b style="color:var(--green)">Address confidence ' + pct + '% — ' +
+      escapeHtml(tier.label) + '</b>' + escapeHtml(contact.email_basis || '');
+  }
+}
+
+function setStatus(message, kind) {
+  $('dlgStatus').textContent = message || '';
+  $('dlgStatus').className = 'status spacer' + (kind ? ' ' + kind : '');
+}
+
+async function saveToGmail() {
+  if (!DRAFT) return;
+  if (window.DEMO) {
+    setStatus('Gmail saving is disabled in the demo.', 'bad');
+    return;
+  }
+  setStatus('Saving…');
+  const response = await fetch('/api/gmail/draft', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      to: DRAFT.contact.email,
+      to_name: DRAFT.contact.name,
+      subject: $('dlgSubject').value,
+      body: $('dlgBody').value,
+      contact_id: DRAFT.contact.id || null,
+      notes: 'Gmail draft for ' + DRAFT.company.name,
+    }),
+  });
+  const result = await response.json();
+
+  if (response.status === 401 && result.needs_auth) {
+    setStatus('Connect Gmail first — opening consent…');
+    window.open('/gmail/connect', '_blank');
+    return;
+  }
+  if (!response.ok) { setStatus(result.error || 'failed', 'bad'); return; }
+  setStatus('Saved to Gmail Drafts — open Gmail to review and send.', 'ok');
+}
+
+$('dlgClose').addEventListener('click', () => $('draftDlg').close());
+$('dlgCopy').addEventListener('click', () => {
+  navigator.clipboard.writeText($('dlgSubject').value + '\n\n' + $('dlgBody').value);
+  setStatus('Copied.', 'ok');
+});
+$('dlgMailto').addEventListener('click', () => {
+  window.location.href = 'mailto:' + encodeURIComponent(DRAFT.contact.email) +
+    '?subject=' + encodeURIComponent($('dlgSubject').value) +
+    '&body=' + encodeURIComponent($('dlgBody').value);
+});
+$('dlgGmail').addEventListener('click', saveToGmail);
+
+$('go').addEventListener('click', runSearch);
+$('csv').addEventListener('click', () => {
+  if (window.DEMO) return downloadDemoCsv();
+  if (JOB_ID) window.location = '/api/export.csv?job_id=' + encodeURIComponent(JOB_ID);
+});
+
+function downloadDemoCsv() {
+  const columns = ['name', 'title', 'company', 'email', 'confidence', 'source',
+                   'company_url', 'how_we_got_it'];
+  const escape = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const lines = [columns.join(',')];
+  ROWS.forEach(({ company, contact }) => lines.push([
+    contact.name, contact.title, company.name, contact.email,
+    contact.email_confidence, contact.source, company.website, contact.email_basis,
+  ].map(escape).join(',')));
+
+  const url = URL.createObjectURL(
+    new Blob([lines.join('\n')], { type: 'text/csv' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'coldstart-sample.csv';
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+boot();
+</script>
+</body>
+</html>

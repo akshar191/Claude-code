@@ -1,0 +1,559 @@
+"""Tests for company research, internship drafting, and the Gmail integration.
+
+Nothing here touches the network: research runs against a local fixture site and
+the Gmail calls are checked at the URL/MIME level.
+
+    python -m unittest tests.test_drafting -v
+"""
+
+import base64
+import http.server
+import os
+import socketserver
+import sys
+import tempfile
+import threading
+import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from finder import config  # noqa: E402
+
+config.DB_PATH = os.path.join(tempfile.mkdtemp(), "drafting.db")
+config.CRAWL_DELAY = 0.0
+
+from finder import gmail, outreach, research  # noqa: E402
+from finder import text as text_module  # noqa: E402
+
+SITE = {
+    "/robots.txt": "User-agent: *\nAllow: /\n",
+    "/": """<html><head>
+              <meta name="description" content="Barrett Technology builds robotic
+                arms for rehabilitation research." /></head>
+            <body><h1>Barrett Technology</h1>
+              <p>We are a world-class, cutting-edge leader passionate about innovation.</p>
+              <p>We build robotic arms and haptic devices used in rehabilitation
+                 research and surgical training.</p>
+              <nav><a href="/products">Products</a><a href="/careers">Careers</a></nav>
+            </body></html>""",
+    "/products": """<html><body>
+              <p>Our WAM arm delivers 7 degrees of freedom with cable drives that
+                 eliminate backlash.</p>
+              <p>Subscribe to our newsletter. All rights reserved.</p>
+            </body></html>""",
+    "/careers": "<html><body><p>Come work with us.</p></body></html>",
+}
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = SITE.get(self.path)
+        if body is None:
+            self.send_error(404)
+            return
+        encoded = body.encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
+
+    def log_message(self, *args):
+        pass
+
+
+class Research(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.server = socketserver.TCPServer(("127.0.0.1", 0), Handler)
+        port = cls.server.server_address[1]
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+        cls.found = research.gather({
+            "name": "Barrett Technology",
+            "domain": "barrett.test",
+            "website": "http://127.0.0.1:%d/" % port,
+        })
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def test_pulls_concrete_claims(self):
+        texts = " ".join(d["text"] for d in self.found["details"])
+        self.assertIn("robotic arms", texts)
+
+    def test_skips_marketing_fluff(self):
+        texts = " ".join(d["text"] for d in self.found["details"]).lower()
+        for filler in ("world-class", "cutting-edge", "passionate about"):
+            self.assertNotIn(filler, texts)
+
+    def test_skips_boilerplate(self):
+        texts = " ".join(d["text"] for d in self.found["details"]).lower()
+        self.assertNotIn("all rights reserved", texts)
+        self.assertNotIn("subscribe", texts)
+
+    def test_follows_the_product_page(self):
+        self.assertTrue(any("/products" in url for url in self.found["pages"]))
+
+    def test_every_detail_cites_a_page(self):
+        for detail in self.found["details"]:
+            self.assertTrue(detail["url"].startswith("http"))
+
+    def test_caps_the_number_of_details(self):
+        self.assertLessEqual(len(self.found["details"]), 2)
+
+
+class MarketingPageExtraction(unittest.TestCase):
+    """A real Dexai-style page is headings and divs, not prose with full stops.
+
+    Flattening it produced one run-on blob that the length cap rejected, so
+    research returned nothing and the draft silently went generic.
+    """
+
+    def blocks(self, html):
+        from bs4 import BeautifulSoup
+        return research._sentences(BeautifulSoup(html, "html.parser"))
+
+    def test_reads_divs_as_separate_claims(self):
+        html = """<html><body><div class="hero">
+                    <h1>Alfred</h1><h2>The robotic sous-chef</h2>
+                    <div>Alfred is a collaborative robot arm that preps food in
+                         commercial kitchens</div>
+                  </div></body></html>"""
+        blocks = self.blocks(html)
+        self.assertIn(
+            "Alfred is a collaborative robot arm that preps food in commercial kitchens",
+            blocks,
+        )
+
+    def test_does_not_produce_one_run_on_blob(self):
+        html = """<html><body>
+                    <div><h1>Alfred</h1></div>
+                    <div>Alfred is a collaborative robot arm</div>
+                    <div>Works with your existing utensils</div>
+                  </body></html>"""
+        for block in self.blocks(html):
+            self.assertLess(len(block), 120, "block is a run-on: %r" % block)
+
+    def test_scores_a_product_claim_above_zero(self):
+        score, why = research._score(
+            "Alfred is a collaborative robot arm that preps food in commercial kitchens")
+        self.assertGreater(score, 0, why)
+
+    def test_explains_why_it_rejected_something(self):
+        self.assertEqual(research._score("Learn more")[1], "too short")
+        self.assertEqual(research._score("We are a world-class team of people")[1],
+                         "marketing filler")
+        self.assertEqual(research._score("Our mission is to change everything")[1],
+                         "no concrete product noun")
+
+
+class InternshipDraft(unittest.TestCase):
+    def setUp(self):
+        self.company = {"name": "Dexai Robotics", "domain": "dexai.test"}
+        self.research = {
+            "details": [{"text": "Alfred is a collaborative robot arm that preps "
+                                 "food in commercial kitchens.",
+                         "url": "https://dexai.test/"}],
+            "pages": ["https://dexai.test/"],
+        }
+        self.profile = {"name": "Akshar Pathak"}
+        self.ceo = {"name": "Dave Johnson", "first_name": "Dave", "rank": 5}
+        self.engineer = {"name": "Sam Lee", "first_name": "Sam", "rank": 2}
+
+    def draft(self, contact=None, research_data=None):
+        return outreach.internship_draft(
+            contact or self.ceo, self.company,
+            self.research if research_data is None else research_data, self.profile)
+
+    # --- the point of the whole feature ---------------------------------
+
+    def test_contains_a_company_specific_line(self):
+        body = self.draft()["body"]
+        self.assertIn("collaborative robot arm", body)
+
+    def test_swapping_the_company_changes_the_email(self):
+        """The regression that started this: the draft was identical for any company."""
+        first = self.draft()["body"]
+        other = outreach.internship_draft(
+            self.ceo, {"name": "Barrett Technology", "domain": "barrett.test"},
+            {"details": [{"text": "We build robotic arms for rehabilitation research.",
+                          "url": "https://barrett.test/"}], "pages": []},
+            self.profile)["body"]
+        self.assertNotEqual(first, other)
+        self.assertNotIn("collaborative robot arm", other)
+
+    def test_refuses_when_research_found_nothing(self):
+        with self.assertRaises(outreach.ResearchFailed) as caught:
+            self.draft(research_data={"details": [], "error": "site is JS-rendered"})
+        self.assertIn("JS-rendered", caught.exception.reason)
+
+    def test_refusal_carries_diagnostics(self):
+        with self.assertRaises(outreach.ResearchFailed) as caught:
+            self.draft(research_data={"details": [], "error": "nothing",
+                                      "diagnostics": {"considered": 42}})
+        self.assertEqual(caught.exception.diagnostics["considered"], 42)
+
+    # --- applicant facts, verbatim --------------------------------------
+
+    def test_uses_the_configured_wording_exactly(self):
+        body = self.draft()["body"]
+        self.assertIn(config.APPLICANT["work"], body)
+        self.assertIn(config.APPLICANT["venture"], body)
+
+    def test_does_not_call_the_intern_a_contractor(self):
+        body = self.draft()["body"].lower()
+        self.assertNotIn("contractor", body)
+        self.assertIn("intern at silverside", body)
+        self.assertIn("paid assembly work", body)
+
+    # --- no hedging ------------------------------------------------------
+
+    def test_never_offers_to_work_unpaid(self):
+        for contact in (self.ceo, self.engineer):
+            body = self.draft(contact)["body"].lower()
+            for phrase in ("unpaid", "for free", "no pay", "without pay",
+                           "free of charge", "not expecting to be paid"):
+                self.assertNotIn(phrase, body, "hedging phrase %r in draft" % phrase)
+
+    def test_no_self_deprecating_hedges(self):
+        for contact in (self.ceo, self.engineer):
+            body = self.draft(contact)["body"].lower()
+            for phrase in ("something small", "just a student", "i know i'm only",
+                           "sorry to bother", "i hate to ask", "even if it's just"):
+                self.assertNotIn(phrase, body, "hedge %r in draft" % phrase)
+
+    # --- the ask adapts to seniority -------------------------------------
+
+    def test_founder_gets_the_direct_internship_ask(self):
+        drafted = self.draft(self.ceo)
+        self.assertEqual(drafted["ask"], "internship")
+        self.assertIn("taking on an intern", drafted["body"])
+        self.assertIn("summer 2027", drafted["body"])
+
+    def test_engineer_gets_no_ask(self):
+        drafted = self.draft(self.engineer)
+        self.assertEqual(drafted["ask"], "about their work")
+        self.assertNotIn("taking on an intern", drafted["body"])
+        self.assertIn("not asking you for a job", drafted["body"])
+
+    def test_the_two_drafts_are_actually_different(self):
+        self.assertNotEqual(self.draft(self.ceo)["body"],
+                            self.draft(self.engineer)["body"])
+        self.assertNotEqual(self.draft(self.ceo)["subject"],
+                            self.draft(self.engineer)["subject"])
+
+    def test_director_is_below_the_direct_ask_line(self):
+        director = {"name": "Sofia Marino", "first_name": "Sofia", "rank": 3}
+        self.assertEqual(self.draft(director)["ask"], "about their work")
+
+    def test_vp_is_at_or_above_it(self):
+        vp = {"name": "Daniel O'Brien", "first_name": "Daniel", "rank": 4}
+        self.assertEqual(self.draft(vp)["ask"], "internship")
+
+    # --- no meta-commentary about the outreach itself --------------------
+
+    def test_never_comments_on_the_outreach(self):
+        """An email insisting it is not a mass email reads as one."""
+        banned = [
+            "rather than sending this everywhere",
+            "writing to you specifically",
+            "not a mass email",
+            "i keep coming back to",
+            "sending this everywhere",
+            "why i'm writing to you",
+            "why i am writing to you",
+            "i'm not sending this",
+            "personalised", "personalized",
+            "i did my research",
+            "unlike other emails",
+            "this isn't a template",
+            "this is not a template",
+            "i chose you",
+            "i picked you",
+        ]
+        for contact in (self.ceo, self.engineer):
+            body = self.draft(contact)["body"].lower()
+            for phrase in banned:
+                self.assertNotIn(phrase, body, "meta-commentary %r in draft" % phrase)
+
+    # --- reference the fact, do not quote it -----------------------------
+
+    def test_does_not_block_quote_the_site(self):
+        for contact in (self.ceo, self.engineer):
+            body = self.draft(contact)["body"]
+            for mark in ('"', "“", "”", "Your site says"):
+                self.assertNotIn(mark, body, "quotation %r in draft" % mark)
+
+    def test_weaves_the_detail_into_a_sentence(self):
+        body = self.draft()["body"]
+        self.assertIn("your work on a collaborative robot arm", body)
+
+    def test_surfaces_the_claim_and_source_for_checking(self):
+        drafted = self.draft()
+        self.assertIn("collaborative robot arm", drafted["source_claim"])
+        self.assertEqual(drafted["source_url"], "https://dexai.test/")
+        self.assertTrue(drafted["unverified"])
+        # ...but the raw claim is not pasted into the email.
+        self.assertNotIn(drafted["source_claim"], drafted["body"])
+
+    def test_flags_a_phrase_it_could_not_rephrase(self):
+        drafted = self.draft(research_data={
+            "details": [{"text": "Precision matters in every weldment we ship.",
+                         "url": "https://x.test/"}], "pages": []})
+        self.assertFalse(drafted["reference_normalised"])
+
+    def test_marks_a_clean_rephrase_as_normalised(self):
+        self.assertTrue(self.draft()["reference_normalised"])
+
+
+class GreetingNameGate(unittest.TestCase):
+    """A real BCA draft opened "Hi M Dinne," -- a parsing artifact, not a name."""
+
+    def setUp(self):
+        self.company = {"name": "BCA Robotics", "domain": "bca.test"}
+        self.research = {
+            "details": [{"text": "We build automated packaging systems for food plants.",
+                         "url": "https://bca.test/"}], "pages": []}
+
+    def draft_for(self, contact):
+        return outreach.internship_draft(contact, self.company, self.research,
+                                         {"name": "Akshar Pathak"})
+
+    def test_refuses_an_initial_joined_to_a_name(self):
+        with self.assertRaises(outreach.NameUnreliable) as caught:
+            self.draft_for({"name": "M. Dinne Flansbury", "first_name": "M Dinne",
+                            "rank": 5})
+        self.assertIn("M Dinne", caught.exception.reason)
+        self.assertEqual(caught.exception.kind, "name")
+
+    def test_refuses_a_bare_initial(self):
+        for bad in ("M", "M.", "J"):
+            with self.assertRaises(outreach.NameUnreliable):
+                self.draft_for({"name": "%s Flansbury" % bad, "first_name": bad,
+                                "rank": 5})
+
+    def test_refuses_a_two_character_name(self):
+        with self.assertRaises(outreach.NameUnreliable):
+            self.draft_for({"name": "Al Smith", "first_name": "Al", "rank": 5})
+
+    def test_never_guesses_a_greeting(self):
+        with self.assertRaises(outreach.NameUnreliable):
+            self.draft_for({"name": "Flansbury", "rank": 5})
+
+    def test_accepts_an_ordinary_first_name(self):
+        drafted = self.draft_for({"name": "Dave Johnson", "first_name": "Dave",
+                                  "rank": 5})
+        self.assertIn("Hi Dave,", drafted["body"])
+
+    def test_accepts_a_hyphenated_name(self):
+        drafted = self.draft_for({"name": "Jean-Luc Picard",
+                                  "first_name": "Jean-Luc", "rank": 5})
+        self.assertIn("Hi Jean-Luc,", drafted["body"])
+
+    def test_parses_a_middle_initial_correctly(self):
+        # The underlying parse should keep the real first name.
+        self.assertEqual(text_module.split_name("M. Dianne Flansbury"),
+                         ("Dianne", "Flansbury"))
+
+
+class CapabilityLists(unittest.TestCase):
+    """The BCA draft said "your work on the in-house capabilities include ..."."""
+
+    LIST = ("Our in-house capabilities include mechanical engineering, controls "
+            "integration, stainless steel fabrication, sanitary design, machining, "
+            "assembly, and testing.")
+
+    def test_research_rejects_a_capability_list(self):
+        score, why = research._score(self.LIST)
+        self.assertEqual(score, 0)
+        self.assertIn("capability list", why)
+
+    def test_phrase_gate_rejects_the_fragment(self):
+        phrase, _ = outreach.reference_phrase(self.LIST)
+        self.assertIsNotNone(outreach.phrase_problem(phrase))
+
+    def test_draft_refuses_rather_than_using_it(self):
+        with self.assertRaises(outreach.ResearchFailed):
+            outreach.internship_draft(
+                {"name": "Dave Johnson", "first_name": "Dave", "rank": 5},
+                {"name": "BCA", "domain": "bca.test"},
+                {"details": [{"text": self.LIST, "url": "https://bca.test/"}]},
+                {"name": "Akshar Pathak"})
+
+    def test_falls_through_to_a_usable_second_detail(self):
+        drafted = outreach.internship_draft(
+            {"name": "Dave Johnson", "first_name": "Dave", "rank": 5},
+            {"name": "BCA", "domain": "bca.test"},
+            {"details": [
+                {"text": self.LIST, "url": "https://bca.test/a"},
+                {"text": "We build automated packaging systems for food plants.",
+                 "url": "https://bca.test/b"}]},
+            {"name": "Akshar Pathak"})
+        self.assertIn("automated packaging systems", drafted["body"])
+        self.assertEqual(drafted["source_url"], "https://bca.test/b")
+
+    def test_rejects_a_truncated_phrase(self):
+        self.assertIn("truncated", outreach.phrase_problem(
+            "the in-house capabilities include mechanical engineering, and…"))
+
+    def test_rejects_a_phrase_ending_mid_thought(self):
+        self.assertIn("mid-thought",
+                      outreach.phrase_problem("automated packaging systems and"))
+
+
+class DraftGrammarGuard(unittest.TestCase):
+    """Nothing malformed leaves the drafter, whatever produced it."""
+
+    GOOD = ("Hi Dave,\n\nI'm Akshar Pathak, a high school junior in Ashland, MA.\n\n"
+            "What interests me about BCA is your work on automated packaging "
+            "systems. I'd like to understand how that gets built.\n\n"
+            "Thanks for reading,\nAkshar Pathak")
+
+    def test_accepts_a_well_formed_draft(self):
+        self.assertIsNone(outreach.draft_problem(self.GOOD))
+
+    def test_rejects_an_ellipsis(self):
+        broken = self.GOOD.replace("packaging systems.", "packaging systems and…")
+        self.assertIn("ellipsis", outreach.draft_problem(broken))
+
+    def test_rejects_a_doubled_preposition(self):
+        broken = self.GOOD.replace("your work on automated",
+                                   "your work on on automated")
+        self.assertIn("doubled", outreach.draft_problem(broken))
+
+    def test_rejects_an_unfilled_template_seam(self):
+        broken = self.GOOD.replace("Akshar Pathak", "{student}")
+        self.assertIn("seam", outreach.draft_problem(broken))
+
+    def test_rejects_a_sentence_with_no_terminator(self):
+        broken = self.GOOD.replace("systems. I'd", "systems I'd").replace(
+            "gets built.", "gets built")
+        self.assertIsNotNone(outreach.draft_problem(broken))
+
+    def test_a_broken_draft_raises_instead_of_returning(self):
+        """A bad value anywhere -- here in the profile -- stops the draft."""
+        with self.assertRaises(outreach.DraftInvalid) as caught:
+            outreach.internship_draft(
+                {"name": "Dave Johnson", "first_name": "Dave", "rank": 5},
+                {"name": "BCA", "domain": "bca.test"},
+                {"details": [{"text": "We build automated packaging systems.",
+                              "url": "https://bca.test/"}]},
+                {"name": "Akshar Pathak",
+                 "work": "an intern doing assembly work on…"})
+        self.assertEqual(caught.exception.kind, "grammar")
+        self.assertIn("ellipsis", caught.exception.reason)
+
+
+class CurrentWorkWording(unittest.TestCase):
+    def test_does_not_call_the_current_role_an_internship(self):
+        drafted = outreach.internship_draft(
+            {"name": "Dave Johnson", "first_name": "Dave", "rank": 5},
+            {"name": "BCA", "domain": "bca.test"},
+            {"details": [{"text": "We build automated packaging systems.",
+                          "url": "https://bca.test/"}]},
+            {"name": "Akshar Pathak"})
+        body = drafted["body"].lower()
+        for phrase in ("my internship", "internship at silverside",
+                       "during my internship", "internship i'm doing"):
+            self.assertNotIn(phrase, body)
+
+    def test_config_default_carries_the_wording(self):
+        # Set in config, not only reachable through an env var.
+        self.assertIn("paid assembly work", config.APPLICANT["work"])
+        self.assertNotIn("contractor", config.APPLICANT["work"])
+
+
+class ReferencePhrasing(unittest.TestCase):
+    """Marketing copy -> something that reads as the sender's own words."""
+
+    def phrase(self, sentence):
+        return outreach.reference_phrase(sentence)
+
+    def test_strips_a_first_person_verb(self):
+        got, ok = self.phrase("We build robotic arms and haptic devices for research.")
+        self.assertTrue(ok)
+        self.assertEqual(got, "robotic arms and haptic devices for research")
+
+    def test_handles_a_product_definition(self):
+        got, ok = self.phrase(
+            "Alfred is a collaborative robot arm that preps food in commercial kitchens.")
+        self.assertTrue(ok)
+        self.assertEqual(got, "a collaborative robot arm that preps food in commercial kitchens")
+
+    def test_trims_a_run_on_clause(self):
+        # "...produces better buildings" would make "your work on X produces Y".
+        got, ok = self.phrase(
+            "We have found that a holistic approach to engineering services, "
+            "where all trades collaborate, produces better buildings.")
+        self.assertTrue(ok)
+        self.assertNotIn("produces", got)
+        self.assertIn("holistic approach", got)
+
+    def test_reduces_our_x_delivers_y_to_the_noun(self):
+        got, ok = self.phrase("Our WAM arm delivers 7 degrees of freedom with cable drives.")
+        self.assertTrue(ok)
+        self.assertEqual(got, "the WAM arm")
+
+    def test_flags_a_sentence_it_cannot_normalise(self):
+        got, ok = self.phrase("Precision matters in every weldment we ship.")
+        self.assertFalse(ok)
+        self.assertTrue(got.startswith("precision"))
+
+    def test_every_normalised_phrase_reads_after_your_work_on(self):
+        for sentence in (
+            "We design fire protection and life safety systems for existing buildings.",
+            "We manufacture cryogenic valves for launch vehicles.",
+            "Sparrow is a handheld device that detects trace explosives.",
+        ):
+            got, ok = self.phrase(sentence)
+            self.assertTrue(ok, sentence)
+            # No finite verb left to break the sentence.
+            for verb in (" delivers ", " produces ", " provides ", " is ", " are "):
+                self.assertNotIn(verb, " %s " % got)
+
+
+class GmailIntegration(unittest.TestCase):
+    def setUp(self):
+        config.GOOGLE_OAUTH_CLIENT_ID = "test-client"
+        config.GOOGLE_OAUTH_CLIENT_SECRET = "test-secret"
+
+    def test_requests_compose_scope_only(self):
+        url = gmail.authorize_url("https://example.com/gmail/callback", "state123")
+        self.assertIn("gmail.compose", url)
+        # Sending is a scope we must never ask for.
+        self.assertNotIn("gmail.send", url)
+        self.assertNotIn("gmail.modify", url)
+        self.assertNotIn("mail.google.com", url.split("scope=")[1].split("&")[0])
+
+    def test_asks_for_a_refresh_token(self):
+        url = gmail.authorize_url("https://example.com/gmail/callback", "state123")
+        self.assertIn("access_type=offline", url)
+        self.assertIn("state=state123", url)
+
+    def test_builds_a_valid_message(self):
+        raw = gmail.build_mime("bill@barrett.test", "Summer internship",
+                               "Hi Bill,\n\nBody here.", to_name="Bill Townsend")
+        decoded = base64.urlsafe_b64decode(raw).decode()
+        self.assertIn("To: Bill Townsend <bill@barrett.test>", decoded)
+        self.assertIn("Subject: Summer internship", decoded)
+        self.assertIn("Body here.", decoded)
+
+    def test_refuses_without_a_recipient(self):
+        result, error = gmail.create_draft({"access_token": "x"}, "", "s", "b")
+        self.assertIsNone(result)
+        self.assertIn("recipient", error)
+
+    def test_reports_when_it_cannot_refresh(self):
+        tokens, error = gmail.refresh({"access_token": "expired"})
+        self.assertIsNone(tokens)
+        self.assertIn("reconnect", error)
+
+    def test_unconfigured_is_detectable(self):
+        config.GOOGLE_OAUTH_CLIENT_ID = ""
+        self.assertFalse(gmail.configured())
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

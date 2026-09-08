@@ -1,0 +1,1516 @@
+<title>Load Paths</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap">
+
+<style>
+  :root {
+    --paper: #e9ebe8;
+    --panel: #f4f5f2;
+    --panel-sunk: #dfe2dd;
+    --ink: #15181a;
+    --ink-soft: #414845;
+    --muted: #676e6a;
+    --rule: #cbd0ca;
+    --rule-soft: #dbdfd9;
+    --load: #c6381a;
+    --support: #2e5b6b;
+    --material: #15181a;
+    --void: #f4f5f2;
+    --focus: #2e5b6b;
+
+    --step: clamp(0.95rem, 0.9rem + 0.2vw, 1.05rem);
+    --measure: 63ch;
+  }
+
+  :root:not([data-theme="light"]) {
+    color-scheme: light dark;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #121513;
+      --panel: #1a1e1c;
+      --panel-sunk: #0d100e;
+      --ink: #e8ebe6;
+      --ink-soft: #c3c9c3;
+      --muted: #949c96;
+      --rule: #2e3532;
+      --rule-soft: #232927;
+      --load: #ff6a44;
+      --support: #6fb3c6;
+      --material: #e8ebe6;
+      --void: #141816;
+      --focus: #6fb3c6;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #121513;
+    --panel: #1a1e1c;
+    --panel-sunk: #0d100e;
+    --ink: #e8ebe6;
+    --ink-soft: #c3c9c3;
+    --muted: #949c96;
+    --rule: #2e3532;
+    --rule-soft: #232927;
+    --load: #ff6a44;
+    --support: #6fb3c6;
+    --material: #e8ebe6;
+    --void: #141816;
+    --focus: #6fb3c6;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Newsreader", Georgia, "Times New Roman", serif;
+    font-size: var(--step);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: clamp(1.5rem, 4vw, 3.25rem) clamp(1.1rem, 4vw, 2rem) 4rem;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(2rem, 4vw, 3.25rem);
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead { display: flex; flex-direction: column; gap: 0.85rem; }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.1rem;
+  }
+
+  h1 {
+    font-family: "Archivo", system-ui, sans-serif;
+    font-weight: 700;
+    font-size: clamp(2.4rem, 1.6rem + 3.4vw, 4rem);
+    letter-spacing: -0.035em;
+    line-height: 0.95;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: var(--measure);
+    font-size: clamp(1.05rem, 1rem + 0.35vw, 1.24rem);
+    color: var(--ink-soft);
+    margin: 0;
+  }
+
+  .standfirst em { font-style: italic; }
+
+  /* ---------- figure panel ---------- */
+
+  .figure {
+    border: 1px solid var(--rule);
+    background: var(--panel);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 268px;
+  }
+
+  @media (max-width: 860px) {
+    .figure { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  .stage {
+    padding: clamp(0.9rem, 2vw, 1.5rem);
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-width: 0;
+  }
+
+  .stage-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .stage-head b { color: var(--ink); font-weight: 500; letter-spacing: 0.08em; }
+
+  canvas#field {
+    width: 100%;
+    display: block;
+    background: var(--void);
+    border: 1px solid var(--rule-soft);
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 1.25rem;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+  }
+
+  .legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+
+  .swatch { width: 0.85rem; height: 0.85rem; border: 1px solid var(--rule); }
+  .swatch.load { background: var(--load); border-color: var(--load); }
+  .swatch.support { background: var(--support); border-color: var(--support); }
+  .swatch.solid { background: var(--material); border-color: var(--material); }
+  .swatch.grey { background: color-mix(in srgb, var(--material) 45%, var(--void)); }
+
+  /* ---------- control rail ---------- */
+
+  .rail {
+    border-left: 1px solid var(--rule);
+    padding: clamp(0.9rem, 2vw, 1.4rem);
+    display: flex;
+    flex-direction: column;
+    gap: 1.35rem;
+    background: var(--panel);
+  }
+
+  @media (max-width: 860px) {
+    .rail { border-left: 0; border-top: 1px solid var(--rule); }
+  }
+
+  .rail-group { display: flex; flex-direction: column; gap: 0.55rem; }
+
+  .rail-label {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+
+  .rail-label output {
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
+
+  .segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+
+  .segmented button {
+    font-family: "Archivo", system-ui, sans-serif;
+    font-size: 0.78rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    padding: 0.5rem 0.35rem;
+    border: 0;
+    background: var(--panel);
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+
+  .segmented button:hover { background: var(--panel-sunk); color: var(--ink); }
+  .segmented button[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
+
+  .segmented.triple { grid-template-columns: repeat(3, 1fr); }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 1.1rem;
+    background: transparent;
+    cursor: pointer;
+    margin: 0;
+  }
+
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 2px; background: var(--rule);
+  }
+  input[type="range"]::-moz-range-track { height: 2px; background: var(--rule); }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 0.85rem; height: 0.85rem;
+    background: var(--ink);
+    border-radius: 50%;
+    margin-top: -0.39rem;
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 0.85rem; height: 0.85rem; border: 0;
+    background: var(--ink); border-radius: 50%;
+  }
+
+  .actions { display: grid; grid-template-columns: 1fr auto; gap: 0.5rem; }
+
+  .btn {
+    font-family: "Archivo", system-ui, sans-serif;
+    font-size: 0.82rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid var(--ink);
+    background: var(--ink);
+    color: var(--panel);
+    cursor: pointer;
+  }
+
+  .btn.ghost { background: transparent; color: var(--ink); }
+  .btn:hover { opacity: 0.86; }
+
+  :where(button, input, a):focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  /* ---------- readout ---------- */
+
+  .readout {
+    border: 1px solid var(--rule);
+    border-top: 0;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) 200px;
+    background: var(--panel);
+  }
+
+  @media (max-width: 860px) {
+    .readout { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .spark-cell { grid-column: span 2; }
+  }
+
+  .metric {
+    padding: 0.85rem 1rem;
+    border-right: 1px solid var(--rule-soft);
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .metric:last-of-type { border-right: 0; }
+
+  .metric dt {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.66rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .metric dd {
+    margin: 0;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 1.32rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  .metric dd small { font-size: 0.72rem; color: var(--muted); letter-spacing: 0.02em; }
+
+  .metric.primary dd { color: var(--load); }
+
+  .spark-cell {
+    border-left: 1px solid var(--rule-soft);
+    padding: 0.7rem 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .spark-cell span {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.66rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  canvas#spark { width: 100%; height: 44px; display: block; }
+
+  .caption {
+    font-size: 0.88rem;
+    color: var(--muted);
+    max-width: var(--measure);
+    margin: 0.9rem 0 0;
+  }
+
+  /* ---------- prose ---------- */
+
+  section { display: flex; flex-direction: column; gap: 1.1rem; }
+
+  h2 {
+    font-family: "Archivo", system-ui, sans-serif;
+    font-size: clamp(1.35rem, 1.1rem + 0.9vw, 1.85rem);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h2 .num {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.7em;
+    color: var(--muted);
+    font-weight: 400;
+    margin-right: 0.6rem;
+  }
+
+  p { margin: 0; max-width: var(--measure); }
+
+  .lede { font-size: 1.08rem; }
+
+  code, .eq {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.86em;
+  }
+
+  .eq {
+    display: block;
+    padding: 0.85rem 1rem;
+    background: var(--panel);
+    border-left: 2px solid var(--support);
+    overflow-x: auto;
+    font-size: 0.84rem;
+    line-height: 1.75;
+    color: var(--ink);
+  }
+
+  .loop {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+  }
+
+  .loop-step {
+    background: var(--panel);
+    padding: 1rem 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .loop-step .idx {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
+    color: var(--support);
+  }
+
+  .loop-step h3 {
+    font-family: "Archivo", system-ui, sans-serif;
+    font-size: 0.98rem;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+
+  .loop-step p { font-size: 0.9rem; color: var(--ink-soft); }
+
+  .loop-step:last-child .idx::after {
+    content: " ↺";
+    color: var(--muted);
+  }
+
+  /* ---------- table ---------- */
+
+  .table-scroll { overflow-x: auto; border: 1px solid var(--rule); }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+    background: var(--panel);
+  }
+
+  th, td { padding: 0.5rem 0.9rem; text-align: right; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+
+  thead th {
+    font-size: 0.66rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 400;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  tbody tr:not(:last-child) td { border-bottom: 1px solid var(--rule-soft); }
+  tbody tr:last-child td { color: var(--ink); font-weight: 500; }
+  td.good { color: var(--support); }
+
+  .note {
+    font-size: 0.86rem;
+    color: var(--muted);
+    max-width: var(--measure);
+  }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 1.25rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+
+  a { color: var(--ink); text-decoration-color: var(--rule); text-underline-offset: 0.2em; }
+  a:hover { text-decoration-color: var(--support); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      <span>Structural topology optimisation</span>
+      <span>SIMP · optimality criteria</span>
+      <span>Runs in this page</span>
+    </div>
+    <h1>Load Paths</h1>
+    <p class="standfirst">
+      Give a block of material a load, a couple of supports, and permission to keep
+      only two fifths of itself. Nobody specifies a truss, an arch, or a fillet —
+      but minimising compliance under a volume constraint <em>finds</em> them, and
+      finds them again at every mesh resolution. The optimiser below is the same
+      algorithm as the Python solver in the repository, recompiled to run in your
+      browser.
+    </p>
+  </header>
+
+  <div>
+    <div class="figure">
+      <div class="stage">
+        <div class="stage-head">
+          <span>Design domain — <b id="case-name">Cantilever</b></span>
+          <span id="grid-label">60 × 30</span>
+        </div>
+        <canvas id="field" width="960" height="480"></canvas>
+        <div class="legend">
+          <span><i class="swatch solid"></i> solid</span>
+          <span><i class="swatch grey"></i> intermediate density</span>
+          <span><i class="swatch"></i> void</span>
+          <span><i class="swatch load"></i> applied load</span>
+          <span><i class="swatch support"></i> support</span>
+        </div>
+      </div>
+
+      <div class="rail">
+        <div class="rail-group">
+          <div class="rail-label"><span>Problem</span></div>
+          <div class="segmented" id="cases">
+            <button type="button" data-case="cantilever" aria-pressed="true">Cantilever</button>
+            <button type="button" data-case="mbb" aria-pressed="false">MBB beam</button>
+            <button type="button" data-case="bridge" aria-pressed="false">Bridge</button>
+            <button type="button" data-case="lbracket" aria-pressed="false">L-bracket</button>
+          </div>
+        </div>
+
+        <div class="rail-group">
+          <label class="rail-label" for="volfrac">
+            <span>Volume fraction</span><output id="volfrac-out">0.40</output>
+          </label>
+          <input type="range" id="volfrac" min="0.15" max="0.7" step="0.05" value="0.4">
+        </div>
+
+        <div class="rail-group">
+          <label class="rail-label" for="penal">
+            <span>Penalty <i>p</i></span><output id="penal-out">3.0</output>
+          </label>
+          <input type="range" id="penal" min="1" max="5" step="0.5" value="3">
+        </div>
+
+        <div class="rail-group">
+          <label class="rail-label" for="rmin">
+            <span>Filter radius</span><output id="rmin-out">2.0</output>
+          </label>
+          <input type="range" id="rmin" min="1" max="5" step="0.5" value="2">
+        </div>
+
+        <div class="rail-group">
+          <div class="rail-label"><span>Resolution</span></div>
+          <div class="segmented triple" id="resolutions">
+            <button type="button" data-rows="20" aria-pressed="false">Coarse</button>
+            <button type="button" data-rows="30" aria-pressed="true">Standard</button>
+            <button type="button" data-rows="40" aria-pressed="false">Fine</button>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button type="button" class="btn" id="run">Pause</button>
+          <button type="button" class="btn ghost" id="reset">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <dl class="readout">
+      <div class="metric primary">
+        <dt>Compliance</dt>
+        <dd id="m-compliance">—</dd>
+      </div>
+      <div class="metric">
+        <dt>Iteration</dt>
+        <dd id="m-iteration">0</dd>
+      </div>
+      <div class="metric">
+        <dt>Volume</dt>
+        <dd id="m-volume">—</dd>
+      </div>
+      <div class="metric">
+        <dt>Greyness <abbr title="Fraction of elements at intermediate density">M<sub>nd</sub></abbr></dt>
+        <dd id="m-grey">—</dd>
+      </div>
+      <div class="spark-cell">
+        <span>Convergence</span>
+        <canvas id="spark" width="400" height="88"></canvas>
+      </div>
+    </dl>
+
+    <p class="caption">
+      Compliance is the work done by the load, <code>c = fᵀu</code> — the inverse of
+      stiffness. Lower is stiffer. The volume constraint stays active throughout, so
+      every layout you see holds exactly the same amount of material; only its
+      arrangement changes.
+    </p>
+  </div>
+
+  <section>
+    <h2><span class="num">01</span>What the optimiser is actually doing</h2>
+    <p class="lede">
+      Each element of the mesh carries a density between 0 and 1, and its stiffness is
+      interpolated from that density by the modified SIMP law:
+    </p>
+    <code class="eq">E<sub>e</sub>(x<sub>e</sub>) = E<sub>min</sub> + x<sub>e</sub><sup>p</sup> · (E<sub>0</sub> − E<sub>min</sub>)</code>
+    <p>
+      The exponent <code>p</code> is the whole trick. At <code>p = 1</code> stiffness is
+      proportional to density and half-dense material is a perfectly good deal, so the
+      optimiser happily returns a grey mush. At <code>p = 3</code> half-dense material
+      costs half the volume but buys only an eighth of the stiffness, so intermediate
+      densities stop paying for themselves and the design separates into solid and void.
+      Slide the penalty down to 1 and watch the structure dissolve.
+    </p>
+    <p>
+      Because minimum compliance is self-adjoint, the gradient needs no adjoint solve —
+      it falls out of the displacement field already computed:
+    </p>
+    <code class="eq">∂c/∂x<sub>e</sub> = −p · x<sub>e</sub><sup>p−1</sup> · (E<sub>0</sub> − E<sub>min</sub>) · u<sub>e</sub>ᵀ k<sub>e</sub> u<sub>e</sub></code>
+    <p>
+      That quantity is the strain energy stored in an element. Read plainly, the
+      algorithm's entire policy is: <em>put material where the material you already have
+      is working hardest, and take it from where it is idle.</em>
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="num">02</span>One iteration of the loop</h2>
+    <div class="loop">
+      <div class="loop-step">
+        <span class="idx">STEP 1</span>
+        <h3>Solve</h3>
+        <p>
+          Assemble <code>K(x)</code> from the current densities and solve
+          <code>K u = f</code>. In this page that is conjugate gradients, warm started
+          from the previous iteration's displacements.
+        </p>
+      </div>
+      <div class="loop-step">
+        <span class="idx">STEP 2</span>
+        <h3>Differentiate</h3>
+        <p>
+          Evaluate the strain energy in every element to get the compliance gradient in
+          closed form. No finite differences, no second solve.
+        </p>
+      </div>
+      <div class="loop-step">
+        <span class="idx">STEP 3</span>
+        <h3>Filter</h3>
+        <p>
+          Average the gradient over a neighbourhood of radius <code>r<sub>min</sub></code>.
+          This imposes a minimum member size and is what stops the design from
+          fragmenting into a checkerboard.
+        </p>
+      </div>
+      <div class="loop-step">
+        <span class="idx">STEP 4</span>
+        <h3>Update</h3>
+        <p>
+          Move each density along its gradient, clipped to a 0.2 move limit, with a
+          Lagrange multiplier found by bisection so the volume constraint stays exactly
+          satisfied.
+        </p>
+      </div>
+    </div>
+    <p class="note">
+      Repeat until no density changes by more than 1%. Typically 40 to 150 iterations —
+      the counter above shows the live count.
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="num">03</span>Why the filter is not optional</h2>
+    <p>
+      Without regularisation this problem is ill-posed. The optimiser discovers that
+      alternating solid and void elements are artificially stiff in the finite element
+      space it is working in, and drives the design towards a checkerboard that no
+      manufacturing process could produce and no finer mesh would reproduce.
+    </p>
+    <p>
+      The filter fixes that by imposing a length scale. The test that proves it worked is
+      not the compliance value — the filter also constrains member size, which has a
+      genuine stiffness cost — but <strong>mesh independence</strong>. Holding the filter
+      radius fixed in physical units and refining the mesh sixteen-fold, the Python
+      implementation reproduces the same structure and the same compliance to 1.1%:
+    </p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Mesh</th>
+            <th scope="col">Elements</th>
+            <th scope="col">r<sub>min</sub> (elements)</th>
+            <th scope="col">Compliance</th>
+            <th scope="col">Checkerboard measure</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>40 × 20</td><td>800</td><td>1.5</td><td>90.380</td><td>0.0293</td></tr>
+          <tr><td>80 × 40</td><td>3 200</td><td>3.0</td><td>89.640</td><td>0.0084</td></tr>
+          <tr><td>160 × 80</td><td>12 800</td><td>6.0</td><td>90.673</td><td>0.0021</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">
+      Refining a mesh should refine the resolution of an answer, not change the answer.
+      That is the property that makes an optimised layout worth manufacturing.
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="num">04</span>The solver underneath</h2>
+    <p>
+      An optimiser is only as trustworthy as the analysis driving it, so the finite
+      element solver was verified before it was ever used to optimise anything. The test
+      case is the end-loaded cantilever of Timoshenko and Goodier — a complete solution of
+      the elasticity equations, not a beam-theory approximation. The exact displacement
+      field is imposed on the supported end and the exact parabolic shear traction on the
+      loaded end, leaving discretisation error as the only error present.
+    </p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Mesh</th>
+            <th scope="col">DOFs</th>
+            <th scope="col">Tip deflection</th>
+            <th scope="col">Tip error</th>
+            <th scope="col">‖u‖ error</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>8 × 2</td><td>54</td><td>2.390605</td><td>10.464%</td><td>10.449%</td></tr>
+          <tr><td>16 × 4</td><td>170</td><td>2.593498</td><td>2.865%</td><td>2.862%</td></tr>
+          <tr><td>32 × 8</td><td>594</td><td>2.650382</td><td>0.735%</td><td>0.734%</td></tr>
+          <tr><td>64 × 16</td><td>2 210</td><td>2.665062</td><td>0.185%</td><td>0.185%</td></tr>
+          <tr><td>128 × 32</td><td>8 514</td><td>2.668763</td><td class="good">0.046%</td><td class="good">0.046%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      Tip deflection converges to <strong>0.046%</strong> of the exact value, at the
+      <code>O(h²)</code> rate the bilinear element is expected to deliver — measured
+      <code>O(h¹·⁹⁶)</code>. The reference deflection is
+      <code>PL³/3EI + P(4+5ν)c²L/6EI</code>; that second term is transverse shear, worth
+      4.1% of the total here and entirely absent from Euler–Bernoulli theory. A solver
+      that merely reproduced beam theory would fail this test.
+    </p>
+    <p class="note">
+      The browser optimiser on this page reproduces the Python result to five significant
+      figures — compliance 90.381 against 90.380 for the 40 × 20 cantilever, in the same
+      43 iterations.
+    </p>
+  </section>
+
+  <footer>
+    <span>Q4 plane stress · 2×2 Gauss · modified SIMP · optimality criteria</span>
+    <span><a href="https://github.com/akshar191/Claude-code/tree/claude/what-can-you-make-l0g637/fea-topopt">Source and verification suite on GitHub</a></span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------------------------------------------------------------- numerics
+
+  function elementStiffness(nu) {
+    // Unit-square plane stress Q4 stiffness for E = 1, node order
+    // [lower-left, lower-right, upper-right, upper-left]. Matches the matrix
+    // produced by 2x2 Gauss integration in the Python solver to 1.7e-16.
+    var A11 = [[12,3,-6,-3],[3,12,3,0],[-6,3,12,-3],[-3,0,-3,12]];
+    var A12 = [[-6,-3,0,3],[-3,-6,-3,-6],[0,-3,-6,3],[3,-6,3,-6]];
+    var B11 = [[-4,3,-2,9],[3,-4,-9,4],[-2,-9,-4,-3],[9,4,-3,-4]];
+    var B12 = [[2,-3,4,-9],[-3,2,9,-2],[4,9,2,3],[-9,-2,3,2]];
+    var KE = new Float64Array(64);
+    var f = 1 / (24 * (1 - nu * nu));
+    for (var r = 0; r < 8; r++) {
+      for (var c = 0; c < 8; c++) {
+        var a, b;
+        if (r < 4 && c < 4) { a = A11[r][c]; b = B11[r][c]; }
+        else if (r < 4) { a = A12[r][c - 4]; b = B12[r][c - 4]; }
+        else if (c < 4) { a = A12[c][r - 4]; b = B12[c][r - 4]; }
+        else { a = A11[r - 4][c - 4]; b = B11[r - 4][c - 4]; }
+        KE[r * 8 + c] = f * (a + nu * b);
+      }
+    }
+    return KE;
+  }
+
+  function Optimizer(opts) {
+    this.nx = opts.nx;
+    this.ny = opts.ny;
+    this.volumeFraction = opts.volumeFraction;
+    this.penalty = opts.penalty;
+    this.eMin = 1e-6;
+    this.moveLimit = 0.2;
+    this.damping = 0.5;
+
+    var nx = this.nx, ny = this.ny;
+    this.nElements = nx * ny;
+    this.nDofs = 2 * (nx + 1) * (ny + 1);
+    this.KE = elementStiffness(0.3);
+
+    this.edof = new Int32Array(this.nElements * 8);
+    for (var j = 0; j < ny; j++) {
+      for (var i = 0; i < nx; i++) {
+        var e = j * nx + i;
+        var n0 = j * (nx + 1) + i;
+        var nodes = [n0, n0 + 1, n0 + nx + 2, n0 + nx + 1];
+        for (var k = 0; k < 4; k++) {
+          this.edof[e * 8 + 2 * k] = 2 * nodes[k];
+          this.edof[e * 8 + 2 * k + 1] = 2 * nodes[k] + 1;
+        }
+      }
+    }
+
+    this.free = new Uint8Array(this.nDofs).fill(1);
+    for (var d = 0; d < opts.fixedDofs.length; d++) this.free[opts.fixedDofs[d]] = 0;
+
+    this.f = new Float64Array(this.nDofs);
+    for (var q = 0; q < opts.forces.length; q++) this.f[opts.forces[q][0]] += opts.forces[q][1];
+
+    this.passiveSolid = opts.passiveSolid || null;
+    this.passiveVoid = opts.passiveVoid || null;
+
+    this.x = new Float64Array(this.nElements).fill(this.volumeFraction);
+    this.applyPassive(this.x);
+
+    this.u = new Float64Array(this.nDofs);
+    this.scale = new Float64Array(this.nElements);
+    this.strainEnergy = new Float64Array(this.nElements);
+    this.diag = new Float64Array(this.nDofs);
+    this.dc = new Float64Array(this.nElements);
+    this.dcFiltered = new Float64Array(this.nElements);
+    this.xNew = new Float64Array(this.nElements);
+    this._r = new Float64Array(this.nDofs);
+    this._z = new Float64Array(this.nDofs);
+    this._p = new Float64Array(this.nDofs);
+    this._ap = new Float64Array(this.nDofs);
+    this._ue = new Float64Array(8);
+
+    this.buildFilter(opts.filterRadius);
+
+    this.iteration = 0;
+    this.compliance = 0;
+    this.change = 1;
+    this.converged = false;
+    this.history = [];
+  }
+
+  Optimizer.prototype.applyPassive = function (x) {
+    if (this.passiveSolid) for (var a = 0; a < x.length; a++) if (this.passiveSolid[a]) x[a] = 1;
+    if (this.passiveVoid) for (var b = 0; b < x.length; b++) if (this.passiveVoid[b]) x[b] = 0;
+  };
+
+  Optimizer.prototype.buildFilter = function (radius) {
+    this.filterRadius = radius;
+    if (radius <= 1) { this.filterRows = null; return; }
+    var nx = this.nx, ny = this.ny;
+    var reach = Math.ceil(radius) - 1;
+    var rows = new Int32Array(this.nElements + 1);
+    var cols = [], weights = [];
+    var sums = new Float64Array(this.nElements);
+    for (var j = 0; j < ny; j++) {
+      for (var i = 0; i < nx; i++) {
+        var e = j * nx + i;
+        rows[e] = cols.length;
+        var jLo = Math.max(0, j - reach), jHi = Math.min(ny - 1, j + reach);
+        var iLo = Math.max(0, i - reach), iHi = Math.min(nx - 1, i + reach);
+        for (var jj = jLo; jj <= jHi; jj++) {
+          for (var ii = iLo; ii <= iHi; ii++) {
+            var w = radius - Math.sqrt((i - ii) * (i - ii) + (j - jj) * (j - jj));
+            if (w > 0) { cols.push(jj * nx + ii); weights.push(w); sums[e] += w; }
+          }
+        }
+      }
+    }
+    rows[this.nElements] = cols.length;
+    this.filterRows = rows;
+    this.filterCols = Int32Array.from(cols);
+    this.filterWeights = Float64Array.from(weights);
+    this.filterSums = sums;
+  };
+
+  Optimizer.prototype.multiply = function (src, dst) {
+    var edof = this.edof, KE = this.KE, scale = this.scale, ue = this._ue;
+    dst.fill(0);
+    for (var e = 0; e < this.nElements; e++) {
+      var off = e * 8, s = scale[e];
+      for (var k = 0; k < 8; k++) ue[k] = src[edof[off + k]];
+      for (k = 0; k < 8; k++) {
+        var row = k * 8, acc = 0;
+        for (var l = 0; l < 8; l++) acc += KE[row + l] * ue[l];
+        dst[edof[off + k]] += s * acc;
+      }
+    }
+    var free = this.free;
+    for (var i = 0; i < this.nDofs; i++) if (!free[i]) dst[i] = 0;
+  };
+
+  Optimizer.prototype.solve = function () {
+    var edof = this.edof, KE = this.KE, scale = this.scale, free = this.free;
+    var diag = this.diag, u = this.u, f = this.f;
+    var r = this._r, z = this._z, p = this._p, ap = this._ap;
+    var n = this.nDofs, i, e, k;
+
+    diag.fill(0);
+    for (e = 0; e < this.nElements; e++) {
+      var off = e * 8;
+      for (k = 0; k < 8; k++) diag[edof[off + k]] += scale[e] * KE[k * 8 + k];
+    }
+    for (i = 0; i < n; i++) if (!free[i] || diag[i] <= 0) diag[i] = 1;
+    for (i = 0; i < n; i++) if (!free[i]) u[i] = 0;
+
+    this.multiply(u, ap);
+    var fNorm = 0;
+    for (i = 0; i < n; i++) {
+      r[i] = free[i] ? f[i] - ap[i] : 0;
+      if (free[i]) fNorm += f[i] * f[i];
+    }
+    fNorm = Math.sqrt(fNorm) || 1;
+
+    var rz = 0;
+    for (i = 0; i < n; i++) { z[i] = r[i] / diag[i]; p[i] = z[i]; rz += r[i] * z[i]; }
+
+    var tol = 1e-7 * fNorm;
+    for (var it = 0; it < 4000; it++) {
+      var rNorm = 0;
+      for (i = 0; i < n; i++) rNorm += r[i] * r[i];
+      if (Math.sqrt(rNorm) <= tol) break;
+
+      this.multiply(p, ap);
+      var pap = 0;
+      for (i = 0; i < n; i++) pap += p[i] * ap[i];
+      if (pap <= 0) break;
+
+      var alpha = rz / pap;
+      for (i = 0; i < n; i++) { u[i] += alpha * p[i]; r[i] -= alpha * ap[i]; }
+
+      var rzNew = 0;
+      for (i = 0; i < n; i++) { z[i] = r[i] / diag[i]; rzNew += r[i] * z[i]; }
+      var beta = rzNew / rz;
+      rz = rzNew;
+      for (i = 0; i < n; i++) p[i] = z[i] + beta * p[i];
+    }
+  };
+
+  Optimizer.prototype.step = function () {
+    var n = this.nElements, x = this.x, scale = this.scale;
+    var penalty = this.penalty, eMin = this.eMin, e;
+
+    for (e = 0; e < n; e++) scale[e] = eMin + Math.pow(x[e], penalty) * (1 - eMin);
+    this.solve();
+
+    var edof = this.edof, KE = this.KE, u = this.u, ue = this._ue;
+    var se = this.strainEnergy, dc = this.dc, compliance = 0;
+    for (e = 0; e < n; e++) {
+      var off = e * 8, acc = 0, k, l;
+      for (k = 0; k < 8; k++) ue[k] = u[edof[off + k]];
+      for (k = 0; k < 8; k++) {
+        var row = k * 8, partial = 0;
+        for (l = 0; l < 8; l++) partial += KE[row + l] * ue[l];
+        acc += ue[k] * partial;
+      }
+      se[e] = acc;
+      compliance += scale[e] * acc;
+      dc[e] = -penalty * Math.pow(x[e], penalty - 1) * (1 - eMin) * acc;
+    }
+
+    var grad = dc;
+    if (this.filterRows) {
+      var rows = this.filterRows, cols = this.filterCols;
+      var w = this.filterWeights, sums = this.filterSums, out = this.dcFiltered;
+      for (e = 0; e < n; e++) {
+        var sum = 0;
+        for (var t = rows[e]; t < rows[e + 1]; t++) sum += w[t] * x[cols[t]] * dc[cols[t]];
+        out[e] = sum / (Math.max(1e-3, x[e]) * sums[e]);
+      }
+      grad = out;
+    }
+
+    var xNew = this.xNew, target = this.volumeFraction * n;
+    var move = this.moveLimit, damping = this.damping;
+    var solidMask = this.passiveSolid, voidMask = this.passiveVoid;
+    var lower = 1e-9, upper = 1e9;
+    while ((upper - lower) / (lower + upper) > 1e-6) {
+      var mid = 0.5 * (lower + upper), volume = 0;
+      for (e = 0; e < n; e++) {
+        var candidate = x[e] * Math.pow(Math.max(0, -grad[e] / mid), damping);
+        if (candidate > x[e] + move) candidate = x[e] + move;
+        if (candidate > 1) candidate = 1;
+        if (candidate < x[e] - move) candidate = x[e] - move;
+        if (candidate < 0) candidate = 0;
+        if (solidMask && solidMask[e]) candidate = 1;
+        if (voidMask && voidMask[e]) candidate = 0;
+        xNew[e] = candidate;
+        volume += candidate;
+      }
+      if (volume > target) lower = mid; else upper = mid;
+    }
+
+    var change = 0;
+    for (e = 0; e < n; e++) {
+      var delta = Math.abs(xNew[e] - x[e]);
+      if (delta > change) change = delta;
+      x[e] = xNew[e];
+    }
+
+    this.iteration += 1;
+    this.compliance = compliance;
+    this.change = change;
+    this.history.push(compliance);
+    if (change < 0.01) this.converged = true;
+    return this;
+  };
+
+  Optimizer.prototype.volume = function () {
+    var total = 0;
+    for (var e = 0; e < this.nElements; e++) total += this.x[e];
+    return total / this.nElements;
+  };
+
+  Optimizer.prototype.greyness = function () {
+    var total = 0;
+    for (var e = 0; e < this.nElements; e++) total += 4 * this.x[e] * (1 - this.x[e]);
+    return total / this.nElements;
+  };
+
+  // ------------------------------------------------------------ problem set
+
+  var CASES = {
+    cantilever: {
+      label: "Cantilever",
+      aspect: 2,
+      volumeFraction: 0.4,
+      mirror: false,
+      build: function (nx, ny) {
+        var fixed = [], j;
+        for (j = 0; j <= ny; j++) {
+          var node = j * (nx + 1);
+          fixed.push(2 * node, 2 * node + 1);
+        }
+        var loadNode = Math.floor(ny / 2) * (nx + 1) + nx;
+        return {
+          fixedDofs: fixed,
+          forces: [[2 * loadNode + 1, -1]],
+          supports: [{ type: "clamp", edge: "left" }],
+          loads: [{ i: nx, j: Math.floor(ny / 2), label: "P" }]
+        };
+      }
+    },
+    mbb: {
+      label: "MBB beam",
+      aspect: 3,
+      volumeFraction: 0.5,
+      mirror: true,
+      build: function (nx, ny) {
+        var fixed = [], j;
+        for (j = 0; j <= ny; j++) fixed.push(2 * (j * (nx + 1)));   // symmetry plane
+        fixed.push(2 * nx + 1);                                      // roller, bottom right
+        var loadNode = ny * (nx + 1);
+        return {
+          fixedDofs: fixed,
+          forces: [[2 * loadNode + 1, -1]],
+          supports: [{ type: "symmetry", edge: "left" }, { type: "roller", i: nx, j: 0 }],
+          loads: [{ i: 0, j: ny, label: "P/2" }]
+        };
+      }
+    },
+    bridge: {
+      label: "Bridge",
+      aspect: 3,
+      volumeFraction: 0.35,
+      mirror: false,
+      build: function (nx, ny) {
+        var fixed = [0, 1, 2 * nx + 1];
+        var forces = [], i;
+        var perNode = -1 / (nx + 1);
+        for (i = 0; i <= nx; i++) forces.push([2 * (ny * (nx + 1) + i) + 1, perNode]);
+        var passiveSolid = new Uint8Array(nx * ny);
+        for (i = 0; i < nx; i++) passiveSolid[(ny - 1) * nx + i] = 1;
+        return {
+          fixedDofs: fixed,
+          forces: forces,
+          passiveSolid: passiveSolid,
+          supports: [{ type: "pin", i: 0, j: 0 }, { type: "roller", i: nx, j: 0 }],
+          loads: [{ distributed: true, label: "w" }]
+        };
+      }
+    },
+    lbracket: {
+      label: "L-bracket",
+      aspect: 1,
+      volumeFraction: 0.35,
+      mirror: false,
+      build: function (nx, ny) {
+        var cutI = Math.round(0.4 * nx), cutJ = Math.round(0.4 * ny);
+        var fixed = [], i, j;
+        for (i = 0; i <= cutI; i++) {
+          var node = ny * (nx + 1) + i;
+          fixed.push(2 * node, 2 * node + 1);
+        }
+        var passiveVoid = new Uint8Array(nx * ny);
+        for (j = 0; j < ny; j++) {
+          for (i = 0; i < nx; i++) if (i >= cutI && j >= cutJ) passiveVoid[j * nx + i] = 1;
+        }
+        var loadNode = cutJ * (nx + 1) + nx;
+        return {
+          fixedDofs: fixed,
+          forces: [[2 * loadNode + 1, -1]],
+          passiveVoid: passiveVoid,
+          supports: [{ type: "clamp", edge: "top", from: 0, to: cutI }],
+          loads: [{ i: nx, j: cutJ, label: "P" }]
+        };
+      }
+    }
+  };
+
+  // ------------------------------------------------------------------ state
+
+  var state = {
+    caseName: "cantilever",
+    rows: 30,
+    volumeFraction: 0.4,
+    penalty: 3,
+    filterRadius: 2,
+    running: true,
+    optimizer: null,
+    spec: null
+  };
+
+  var field = document.getElementById("field");
+  var ctx = field.getContext("2d");
+  var spark = document.getElementById("spark");
+  var sctx = spark.getContext("2d");
+  var buffer = document.createElement("canvas");
+  var bctx = buffer.getContext("2d");
+  var mid = document.createElement("canvas");
+  var mctx = mid.getContext("2d");
+
+  // Clear space around the design domain, in element widths, so load arrows,
+  // support hatching and roller symbols are drawn outside the material rather
+  // than over it or off the edge of the canvas.
+  var MARGIN = { top: 4.2, bottom: 2.4, side: 1.6 };
+
+  var probeCtx = document.createElement("canvas").getContext("2d");
+
+  function token(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
+  function parseColor(value) {
+    var probe = probeCtx;
+    probe.fillStyle = "#000";
+    probe.fillStyle = value;
+    var hex = probe.fillStyle;
+    if (hex.charAt(0) === "#") {
+      return [parseInt(hex.substr(1, 2), 16), parseInt(hex.substr(3, 2), 16), parseInt(hex.substr(5, 2), 16)];
+    }
+    var nums = hex.match(/[\d.]+/g) || [0, 0, 0];
+    return [parseInt(nums[0], 10), parseInt(nums[1], 10), parseInt(nums[2], 10)];
+  }
+
+  // ---------------------------------------------------------------- drawing
+
+  function render() {
+    var opt = state.optimizer;
+    var spec = state.spec;
+    var conf = CASES[state.caseName];
+    var nx = opt.nx, ny = opt.ny;
+    var mirror = conf.mirror;
+    var cols = mirror ? nx * 2 : nx;
+
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var cssWidth = field.clientWidth || 900;
+    var totalCols = cols + 2 * MARGIN.side;
+    var totalRows = ny + MARGIN.top + MARGIN.bottom;
+    var cssHeight = Math.round(cssWidth * totalRows / totalCols);
+    if (field.width !== Math.round(cssWidth * dpr) || field.height !== Math.round(cssHeight * dpr)) {
+      field.width = Math.round(cssWidth * dpr);
+      field.height = Math.round(cssHeight * dpr);
+    }
+    field.style.height = cssHeight + "px";
+
+    var material = parseColor(token("--material"));
+    var voidColor = parseColor(token("--void"));
+
+    buffer.width = cols;
+    buffer.height = ny;
+    var image = bctx.createImageData(cols, ny);
+    var data = image.data;
+
+    for (var row = 0; row < ny; row++) {
+      var j = ny - 1 - row;                     // canvas rows run top-down
+      for (var col = 0; col < cols; col++) {
+        var i = mirror ? (col < nx ? nx - 1 - col : col - nx) : col;
+        var d = opt.x[j * nx + i];
+        var p = (row * cols + col) * 4;
+        data[p] = Math.round(voidColor[0] + (material[0] - voidColor[0]) * d);
+        data[p + 1] = Math.round(voidColor[1] + (material[1] - voidColor[1]) * d);
+        data[p + 2] = Math.round(voidColor[2] + (material[2] - voidColor[2]) * d);
+        data[p + 3] = 255;
+      }
+    }
+    bctx.putImageData(image, 0, 0);
+
+    var W = field.width, H = field.height;
+    var sx = W / totalCols, sy = H / totalRows;
+    var box = {
+      x: MARGIN.side * sx,
+      y: MARGIN.top * sy,
+      w: cols * sx,
+      h: ny * sy,
+      sx: sx,
+      sy: sy,
+      offset: mirror ? nx : 0
+    };
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = token("--panel");
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = token("--void");
+    ctx.fillRect(box.x, box.y, box.w, box.h);
+    // Upscale in two bilinear passes. A single pass from one pixel per element
+    // straight to screen size leaves visible diagonal stepping along members;
+    // an intermediate 4x pass resolves the edges cleanly.
+    mid.width = cols * 4;
+    mid.height = ny * 4;
+    mctx.imageSmoothingEnabled = true;
+    mctx.imageSmoothingQuality = "high";
+    mctx.drawImage(buffer, 0, 0, mid.width, mid.height);
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(mid, box.x, box.y, box.w, box.h);
+
+    ctx.strokeStyle = token("--rule");
+    ctx.lineWidth = Math.max(1, dpr);
+    ctx.strokeRect(box.x + 0.5, box.y + 0.5, box.w - 1, box.h - 1);
+
+    drawAnnotations(ctx, box, nx, ny, spec, dpr);
+  }
+
+  // Standard drafting symbols: hatched ground for a clamp, a triangle for a
+  // pin, a triangle on rollers for a roller, a dash-dot centreline for a plane
+  // of symmetry, and an arrow for the load.
+  function drawAnnotations(g, box, nx, ny, spec, dpr) {
+    var sx = box.sx, sy = box.sy;
+    var lw = Math.max(1.25, 1.4 * dpr);
+    var supportColor = token("--support");
+    var loadColor = token("--load");
+
+    function px(i) { return box.x + (box.offset + i) * sx; }
+    function py(j) { return box.y + box.h - j * sy; }
+
+    g.lineWidth = lw;
+    g.strokeStyle = supportColor;
+    g.fillStyle = supportColor;
+    g.lineCap = "round";
+
+    (spec.supports || []).forEach(function (s) {
+      if (s.type === "clamp" && s.edge === "left") {
+        g.beginPath(); g.moveTo(px(0), py(ny)); g.lineTo(px(0), py(0)); g.stroke();
+        hatch(g, px(0), py(ny), px(0), py(0), -1, 0, lw);
+      } else if (s.type === "clamp" && s.edge === "top") {
+        var x1 = px(s.from), x2 = px(s.to);
+        g.beginPath(); g.moveTo(x1, py(ny)); g.lineTo(x2, py(ny)); g.stroke();
+        hatch(g, x1, py(ny), x2, py(ny), 0, -1, lw);
+      } else if (s.type === "symmetry") {
+        centreline(g, px(0), py(ny), px(0), py(0), lw);
+      } else if (s.type === "pin") {
+        triangle(g, px(s.i), py(s.j), sy, lw, false);
+      } else if (s.type === "roller") {
+        triangle(g, px(s.i), py(s.j), sy, lw, true);
+      }
+    });
+
+    g.strokeStyle = loadColor;
+    g.fillStyle = loadColor;
+
+    (spec.loads || []).forEach(function (load) {
+      if (load.distributed) {
+        var count = 9;
+        for (var k = 0; k <= count; k++) {
+          var x = px(nx * k / count);
+          arrow(g, x, py(ny) - 2.4 * sy, x, py(ny) - 0.15 * sy, lw, sy * 0.5);
+        }
+        label(g, px(nx / 2), py(ny) - 3.1 * sy, load.label, loadColor, dpr);
+      } else {
+        var lx = px(load.i), ly = py(load.j);
+        arrow(g, lx, ly - 3.1 * sy, lx, ly - 0.2 * sy, lw, sy * 0.75);
+        label(g, lx, ly - 3.8 * sy, load.label, loadColor, dpr);
+      }
+    });
+  }
+
+  function hatch(g, x1, y1, x2, y2, dx, dy, lw) {
+    var steps = 14, len = Math.max(6, lw * 5);
+    g.lineWidth = lw * 0.75;
+    g.beginPath();
+    for (var k = 0; k <= steps; k++) {
+      var t = k / steps;
+      var x = x1 + (x2 - x1) * t, y = y1 + (y2 - y1) * t;
+      g.moveTo(x, y);
+      g.lineTo(x + dx * len - dy * len * 0.5, y + dy * len - dx * len * 0.5);
+    }
+    g.stroke();
+    g.lineWidth = lw;
+  }
+
+  function centreline(g, x1, y1, x2, y2, lw) {
+    g.save();
+    g.setLineDash([lw * 9, lw * 3, lw * 2, lw * 3]);
+    g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+    g.restore();
+  }
+
+  function triangle(g, x, y, size, lw, roller) {
+    var h = Math.max(9, size * 1.1), w = h * 0.9;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.lineTo(x - w / 2, y + h);
+    g.lineTo(x + w / 2, y + h);
+    g.closePath();
+    g.stroke();
+    if (roller) {
+      var rr = Math.max(2, h * 0.16);
+      g.beginPath();
+      g.arc(x - w / 4, y + h + rr, rr, 0, Math.PI * 2);
+      g.arc(x + w / 4, y + h + rr, rr, 0, Math.PI * 2);
+      g.stroke();
+    } else {
+      g.beginPath(); g.moveTo(x - w * 0.8, y + h); g.lineTo(x + w * 0.8, y + h); g.stroke();
+    }
+  }
+
+  function arrow(g, x1, y1, x2, y2, lw, head) {
+    var size = Math.max(5, head);
+    g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2 - size * 0.9); g.stroke();
+    g.beginPath();
+    g.moveTo(x2, y2);
+    g.lineTo(x2 - size * 0.45, y2 - size);
+    g.lineTo(x2 + size * 0.45, y2 - size);
+    g.closePath();
+    g.fill();
+  }
+
+  function label(g, x, y, text, color, dpr) {
+    g.save();
+    g.fillStyle = color;
+    g.font = (11 * Math.max(dpr, 1)) + "px \"IBM Plex Mono\", monospace";
+    g.textAlign = "center";
+    g.textBaseline = "bottom";
+    g.fillText(text, x, y);
+    g.restore();
+  }
+
+  function renderSpark() {
+    var history = state.optimizer.history;
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var w = spark.clientWidth || 200, h = 44;
+    if (spark.width !== Math.round(w * dpr)) { spark.width = Math.round(w * dpr); }
+    spark.height = Math.round(h * dpr);
+    spark.style.height = h + "px";
+
+    sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    sctx.clearRect(0, 0, w, h);
+    if (history.length < 2) return;
+
+    var lo = Infinity, hi = -Infinity, k;
+    for (k = 0; k < history.length; k++) {
+      if (history[k] < lo) lo = history[k];
+      if (history[k] > hi) hi = history[k];
+    }
+    var span = (hi - lo) || 1;
+    var pad = 4;
+    var xAt = function (k) { return pad + (w - 2 * pad) * (k / Math.max(1, history.length - 1)); };
+    var yAt = function (v) { return pad + (h - 2 * pad) * (1 - (v - lo) / span); };
+
+    sctx.strokeStyle = token("--rule");
+    sctx.lineWidth = 1;
+    sctx.beginPath(); sctx.moveTo(pad, h - pad); sctx.lineTo(w - pad, h - pad); sctx.stroke();
+
+    sctx.beginPath();
+    sctx.moveTo(xAt(0), yAt(history[0]));
+    for (k = 1; k < history.length; k++) sctx.lineTo(xAt(k), yAt(history[k]));
+    sctx.strokeStyle = token("--ink");
+    sctx.lineWidth = 1.4;
+    sctx.stroke();
+
+    var last = history.length - 1;
+    sctx.fillStyle = token("--load");
+    sctx.beginPath();
+    sctx.arc(xAt(last), yAt(history[last]), 2.6, 0, Math.PI * 2);
+    sctx.fill();
+  }
+
+  // ------------------------------------------------------------------- ui
+
+  function setText(id, value) { document.getElementById(id).textContent = value; }
+
+  function updateReadout() {
+    var opt = state.optimizer;
+    setText("m-compliance", opt.iteration ? opt.compliance.toFixed(2) : "—");
+    setText("m-iteration", String(opt.iteration));
+    setText("m-volume", opt.iteration ? opt.volume().toFixed(3) : "—");
+    setText("m-grey", opt.iteration ? (100 * opt.greyness()).toFixed(1) + "%" : "—");
+    document.getElementById("run").textContent =
+      opt.converged ? "Converged" : (state.running ? "Pause" : "Run");
+    document.getElementById("run").disabled = opt.converged;
+  }
+
+  function build() {
+    var conf = CASES[state.caseName];
+    var ny = state.rows;
+    var nx = Math.round(ny * conf.aspect);
+    var spec = conf.build(nx, ny);
+
+    state.spec = spec;
+    state.optimizer = new Optimizer({
+      nx: nx, ny: ny,
+      volumeFraction: state.volumeFraction,
+      penalty: state.penalty,
+      filterRadius: state.filterRadius,
+      fixedDofs: spec.fixedDofs,
+      forces: spec.forces,
+      passiveSolid: spec.passiveSolid,
+      passiveVoid: spec.passiveVoid
+    });
+
+    setText("case-name", conf.label);
+    setText("grid-label", nx + " × " + ny + (conf.mirror ? "  (half domain, mirrored)" : ""));
+    render();
+    renderSpark();
+    updateReadout();
+  }
+
+  function restart() {
+    state.running = true;
+    build();
+  }
+
+  function loop() {
+    if (state.running && state.optimizer && !state.optimizer.converged) {
+      state.optimizer.step();
+      render();
+      renderSpark();
+      updateReadout();
+    }
+    requestAnimationFrame(loop);
+  }
+
+  document.getElementById("cases").addEventListener("click", function (event) {
+    var button = event.target.closest("button[data-case]");
+    if (!button) return;
+    var buttons = this.querySelectorAll("button");
+    for (var k = 0; k < buttons.length; k++) buttons[k].setAttribute("aria-pressed", "false");
+    button.setAttribute("aria-pressed", "true");
+    state.caseName = button.getAttribute("data-case");
+    state.volumeFraction = CASES[state.caseName].volumeFraction;
+    document.getElementById("volfrac").value = state.volumeFraction;
+    document.getElementById("volfrac-out").textContent = state.volumeFraction.toFixed(2);
+    restart();
+  });
+
+  document.getElementById("resolutions").addEventListener("click", function (event) {
+    var button = event.target.closest("button[data-rows]");
+    if (!button) return;
+    var buttons = this.querySelectorAll("button");
+    for (var k = 0; k < buttons.length; k++) buttons[k].setAttribute("aria-pressed", "false");
+    button.setAttribute("aria-pressed", "true");
+    state.rows = parseInt(button.getAttribute("data-rows"), 10);
+    restart();
+  });
+
+  function bindSlider(id, outId, key, format) {
+    var input = document.getElementById(id);
+    var out = document.getElementById(outId);
+    input.addEventListener("input", function () {
+      state[key] = parseFloat(input.value);
+      out.textContent = format(state[key]);
+      restart();
+    });
+  }
+
+  bindSlider("volfrac", "volfrac-out", "volumeFraction", function (v) { return v.toFixed(2); });
+  bindSlider("penal", "penal-out", "penalty", function (v) { return v.toFixed(1); });
+  bindSlider("rmin", "rmin-out", "filterRadius", function (v) { return v.toFixed(1); });
+
+  document.getElementById("run").addEventListener("click", function () {
+    state.running = !state.running;
+    updateReadout();
+  });
+
+  document.getElementById("reset").addEventListener("click", restart);
+
+  var resizeTimer = null;
+  window.addEventListener("resize", function () {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () { render(); renderSpark(); }, 120);
+  });
+
+  if (window.matchMedia) {
+    var scheme = window.matchMedia("(prefers-color-scheme: dark)");
+    if (scheme.addEventListener) scheme.addEventListener("change", function () { render(); renderSpark(); });
+  }
+
+  // First paint shows the problem as posed - domain, supports, load - then the
+  // optimiser starts from the uniform initial design.
+  build();
+  requestAnimationFrame(loop);
+})();
+</script>

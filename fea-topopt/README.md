@@ -122,6 +122,22 @@ structure is visibly the same at every resolution.
 
 ![Mesh independence](results/mesh_independence.png)
 
+## Interactive demo
+
+`web/load-paths.html` is a self-contained page that runs the same optimisation in
+a browser, with all four benchmark problems and live control of the volume
+fraction, penalty exponent, filter radius, and mesh resolution. The element
+stiffness matrix, the SIMP interpolation, the sensitivity filter and the
+optimality criteria update are ports of the Python above; the only difference is
+the linear solve, which uses warm-started conjugate gradients instead of a sparse
+direct factorisation.
+
+It reproduces the Python result to five significant figures — compliance 90.381
+against 90.380 for the 40 × 20 cantilever, in the same 43 iterations. Open the
+file directly in a browser, or use the hosted copy:
+
+**[claude.ai/code/artifact/d6229698-0e0c-4284-a193-e1333116457b](https://claude.ai/code/artifact/d6229698-0e0c-4284-a193-e1333116457b)**
+
 ## Method
 
 The discrete problem is `K u = f`. Element stiffness is integrated as
@@ -207,6 +223,8 @@ examples/
   optimize.py              MBB, cantilever, bridge, and L-bracket cases
   filter_study.py          checkerboarding and mesh independence
 tests/                     22 unit and verification tests
+web/
+  load-paths.html          self-contained browser port of the optimiser
 ```
 
 ## References

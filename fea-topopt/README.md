@@ -228,6 +228,33 @@ constraint is an approximation and the problem is strongly non-convex, so the
 stress formulation wins decisively only where a local hot spot is what actually
 governs.
 
+### What this formulation does not do
+
+The compliance optimiser reproduces its optimum to about 1% across a sixteen-fold
+change in element count. The stress-constrained one does not, and
+`examples/stress_mesh_study.py` measures it: holding the stress limit and the
+physical filter radius fixed, the volume needed rises with every refinement.
+
+```
+     mesh  solid bracket  compliance peak  constrained volume
+  60x60            61.88            56.51              0.4979
+  80x80            70.37            61.12              0.5333
+ 100x100           77.71            62.93              0.5811
+```
+
+Across that range the solid bracket's reported peak rises 26% and the compliance
+design's 11% — both are reading the corner singularity, which each finer mesh
+resolves better — and the stress-constrained volume moves 15.5%. The cause is the
+stress measure: stress is sampled at element centroids, so on a finer mesh the
+sampling points sit closer to boundaries and re-entrant corners where the field
+is higher, and the same physical shape reports a higher peak and is given more
+material to meet the same limit.
+
+So a stress-constrained volume from this code is only meaningful alongside the
+mesh that produced it. Fixing it properly needs a mesh-independent stress
+measure, which is an open enough problem that stress-constrained topology
+optimisation is still an active research area rather than a solved one.
+
 Two implementation details turned out to matter more than expected, and both are
 recorded in the code:
 

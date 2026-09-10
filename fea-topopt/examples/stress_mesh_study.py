@@ -119,10 +119,24 @@ def main() -> None:
         "reading the\n  corner singularity, which the mesh resolves better each time."
     )
     spread = (volumes.max() - volumes.min()) / volumes.mean()
+    monotone = bool(np.all(np.diff(volumes) > 0))
     print(
-        f"  The stress-constrained volume varies by {100 * spread:.1f}% "
-        f"({volumes.min():.3f} to {volumes.max():.3f}) for the same physical requirement."
+        f"  The stress-constrained volume moves {100 * spread:.1f}% "
+        f"({volumes[0]:.3f} to {volumes[-1]:.3f}) for the same physical requirement"
+        + (", rising with every refinement." if monotone else ".")
     )
+    if monotone and spread > 0.05:
+        print(
+            "\n  That is a real limitation, and worth stating plainly: unlike the\n"
+            "  compliance formulation, which reproduces its optimum to about 1% across a\n"
+            "  sixteen-fold change in element count, this stress-constrained volume is not\n"
+            "  mesh converged over this range. The stress is sampled at element centroids,\n"
+            "  so on a finer mesh the sampling points sit closer to boundaries and re-entrant\n"
+            "  corners where the field is higher; the same physical shape therefore reports a\n"
+            "  higher peak and has to be given more material to meet the same limit.\n"
+            "  Reporting a stress-constrained volume without saying which mesh produced it\n"
+            "  would be meaningless."
+        )
 
 
 if __name__ == "__main__":

@@ -3,24 +3,35 @@
 The L-bracket is the canonical stress-constrained benchmark because minimum
 compliance gets it wrong in a specific, instructive way: the stiffest layout for
 a given volume keeps the sharp re-entrant corner, where the elasticity solution
-is singular and a real part would crack. A stress constraint has to trade some
-stiffness for a rounded corner and a more evenly loaded structure.
+is singular and a real part would crack. Compliance is an integral of the whole
+structure and barely notices a local hot spot, so no amount of extra material
+persuades it to round the corner off.
 
-The comparison is made at equal volume. The stress-constrained optimiser is run
-first, to find the least material that keeps the peak von Mises stress under the
-limit; the compliance optimiser is then given exactly that much material, and
-both designs are evaluated with the same stress measure.
+That leads to the comparison this script makes, which is *not* peak stress at
+equal volume. The two formulations optimise different things, and the
+stress-constrained design deliberately sits right at its limit, so comparing
+their peak stresses at equal volume flatters whichever one happens to be further
+from its own optimum. The engineering question is instead:
 
-The stress limit is set relative to the peak stress of the full, unoptimised
-bracket. Because the corner stress is singular, the finite element peak grows
-under mesh refinement and the smallest attainable peak depends on the filter
-radius in physical units; the filter is therefore scaled with the mesh so that
-the physical length scale, and hence the achievable limit, stays fixed.
+    given a strength requirement, how much material does each formulation need?
+
+Answering it needs a search over the compliance design's volume, since minimum
+compliance has no stress input: the script bisects on volume fraction to find
+the lightest compliance-optimal design that meets the limit, and compares that
+with the volume the stress-constrained optimiser needs for the same limit.
+
+The result splits into two regimes, and the script reports whichever applies.
+Below the compliance design's stress floor no volume is enough, because the
+corner is still there. Above it the corner stops binding and the two are
+comparable, with minimum compliance usually a little lighter - the
+stress-constrained problem is strongly non-convex and its aggregated constraint
+is an approximation, so it does not win everywhere, only where the constraint is
+actually doing work that compliance cannot do.
 
 Run from the project root::
 
     python examples/stress_lbracket.py
-    python examples/stress_lbracket.py --n 100 --limit-ratio 0.8
+    python examples/stress_lbracket.py --limit-ratio 0.75 --n 100
 """
 
 from __future__ import annotations
@@ -46,7 +57,6 @@ from fea.stress_topopt import StressConstrainedOptimizer, StressSettings  # noqa
 
 REFERENCE_N = 60
 REFERENCE_RMIN = 2.5  # filter radius in elements at the reference resolution
-
 
 LOAD_LENGTH = 0.08  # physical length of the loaded edge at the arm tip
 PATCH_DEPTH = 0.06  # depth of the solid load-introduction patch behind it
@@ -79,7 +89,9 @@ def l_bracket(n: int):
     passive_void = (centroids[:, 0] > 0.4 * grid.lx) & (centroids[:, 1] > top_of_arm)
 
     load_nodes = grid.nodes_where(
-        lambda x, y: np.isclose(x, grid.lx) & (y <= top_of_arm + 1e-9) & (y >= top_of_arm - LOAD_LENGTH - 1e-9)
+        lambda x, y: np.isclose(x, grid.lx)
+        & (y <= top_of_arm + 1e-9)
+        & (y >= top_of_arm - LOAD_LENGTH - 1e-9)
     )
     for node in load_nodes:
         bcs.add_force(2 * node + 1, -1.0 / len(load_nodes))
@@ -93,6 +105,37 @@ def l_bracket(n: int):
     return model, bcs, passive_void, load_patch
 
 
+def make_probe(model, bcs, rmin, passive_void, load_patch):
+    """An optimiser used only to evaluate the stress measure on a given design."""
+    return StressConstrainedOptimizer(
+        model,
+        bcs,
+        StressSettings(stress_limit=1.0, filter_radius=rmin),
+        passive_void=passive_void,
+        passive_solid=load_patch,
+        unconstrained=load_patch,
+    )
+
+
+def compliance_design(model, bcs, rmin, passive_void, load_patch, volfrac, iterations):
+    """Minimum compliance at a fixed volume, with its peak stress measured."""
+    result = TopologyOptimizer(
+        model,
+        bcs,
+        TopOptSettings(
+            volume_fraction=volfrac,
+            filter_radius=rmin,
+            filter_type="density",
+            max_iterations=iterations,
+        ),
+        passive_void=passive_void,
+        passive_solid=load_patch,
+    ).run()
+    probe = make_probe(model, bcs, rmin, passive_void, load_patch)
+    peak = float(probe.analyse(result.density)[4][probe.design_mask].max())
+    return result, peak
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--n", type=int, default=80, help="elements along each side")
@@ -102,32 +145,45 @@ def main() -> None:
         default=0.85,
         help="stress limit as a fraction of the full bracket's peak stress",
     )
-    parser.add_argument("--iterations", type=int, default=200)
+    parser.add_argument("--iterations", type=int, default=300)
+    parser.add_argument(
+        "--bisection-steps", type=int, default=5, help="volume search steps for the compliance design"
+    )
     parser.add_argument("--figures", default="results")
     args = parser.parse_args()
 
     rmin = REFERENCE_RMIN * args.n / REFERENCE_N
     model, bcs, passive_void, load_patch = l_bracket(args.n)
     grid = model.mesh
+    probe = make_probe(model, bcs, rmin, passive_void, load_patch)
     print(f"L-bracket, {grid.nx}x{grid.ny} grid, {grid.n_dofs} DOFs, filter radius {rmin:.2f} elements")
 
-    # -- Reference: the full bracket ----------------------------------------------
-    probe = StressConstrainedOptimizer(
-        model,
-        bcs,
-        StressSettings(stress_limit=1.0, filter_radius=rmin),
-        passive_void=passive_void,
-        passive_solid=load_patch,
-        unconstrained=load_patch,
-    )
     full = probe.physical_density(np.ones(grid.n_elements))
     peak_full = float(probe.analyse(full)[4][probe.design_mask].max())
     limit = args.limit_ratio * peak_full
-    print(f"  full bracket: peak relaxed von Mises stress {peak_full:.3f}")
-    print(f"  stress limit: {limit:.3f} ({args.limit_ratio:.0%} of that)")
+    print(f"  solid bracket: peak relaxed von Mises stress {peak_full:.3f}")
+    print(f"  stress limit:  {limit:.3f} ({args.limit_ratio:.0%} of that)")
 
-    # -- 1. Minimum volume under the stress limit ----------------------------------
-    print("\nMinimum volume, stress-constrained")
+    # -- 1. The compliance design's stress floor -----------------------------------
+    # Minimum compliance takes no stress input, so the only lever is volume. Give
+    # it most of the domain and see how low its peak stress can go.
+    print("\nMinimum compliance: peak stress against volume fraction")
+    floor_volumes = (0.4, 0.5, 0.6, 0.8)
+    floor = np.inf
+    floor_design = None
+    for volfrac in floor_volumes:
+        result, peak = compliance_design(
+            model, bcs, rmin, passive_void, load_patch, volfrac, args.iterations
+        )
+        marker = "  <- limit met" if peak <= limit else ""
+        print(f"    volume {volfrac:.2f}:  peak {peak:7.3f}   compliance {result.compliance:8.3f}{marker}")
+        if peak < floor:
+            floor, floor_design = peak, (result, volfrac, peak)
+    print(f"  floor: {floor:.3f}. Extra material past this point buys no strength —")
+    print("  the design keeps the sharp corner, and the corner sets the peak.")
+
+    # -- 2. Minimum volume under the stress limit ----------------------------------
+    print(f"\nStress-constrained: minimum volume with peak stress <= {limit:.3f}")
     settings = StressSettings(
         stress_limit=limit,
         filter_radius=rmin,
@@ -136,7 +192,7 @@ def main() -> None:
     )
 
     def report(iteration, volume, max_stress, constraint, density):
-        if iteration % 20 == 0 or iteration == 1:
+        if iteration % 25 == 0 or iteration == 1:
             print(
                 f"    it {iteration:>4}   volume = {volume:.4f}   "
                 f"peak stress = {max_stress:.3f}   constraint = {constraint:+.4f}"
@@ -161,50 +217,44 @@ def main() -> None:
         f"({stress_result.max_stress / limit:.1%} of the limit)"
     )
 
-    # -- 2. Minimum compliance with the same amount of material ---------------------
-    volume = stress_result.volume_fraction
-    print(f"\nMinimum compliance at the same volume fraction, {volume:.3f}")
-    start = time.perf_counter()
-    compliance_result = TopologyOptimizer(
-        model,
-        bcs,
-        TopOptSettings(
-            volume_fraction=volume,
-            filter_radius=rmin,
-            filter_type="density",
-            max_iterations=args.iterations,
-        ),
-        passive_void=passive_void,
-        passive_solid=load_patch,
-    ).run()
-    compliance_stress = probe.analyse(compliance_result.density)[4]
-    peak_compliance = float(compliance_stress[probe.design_mask].max())
-    print(
-        f"  {compliance_result.iterations} iterations in {time.perf_counter() - start:.0f}s, "
-        f"compliance {compliance_result.compliance:.3f}"
-    )
-    print(f"  peak relaxed von Mises stress {peak_compliance:.3f} ({peak_compliance / limit:.0%} of the limit)")
-
-    # Compliance of the stress-constrained design, for the cost of the constraint.
-    stress_design_compliance = model.solve(
-        bcs, scale=settings.E_min + stress_result.density**settings.penalty * (1 - settings.E_min)
-    ).compliance
-
-    print("\nSame material, same load:")
-    print(f"  {'design':<22} {'volume':>8} {'compliance':>11} {'peak stress':>12} {'vs limit':>9}")
-    print(
-        f"  {'minimum compliance':<22} {volume:>8.3f} {compliance_result.compliance:>11.3f} "
-        f"{peak_compliance:>12.3f} {peak_compliance / limit:>8.0%}"
-    )
-    print(
-        f"  {'stress-constrained':<22} {volume:>8.3f} {stress_design_compliance:>11.3f} "
-        f"{stress_result.max_stress:>12.3f} {stress_result.max_stress / limit:>8.0%}"
-    )
-    print(
-        f"\n  The stress constraint costs "
-        f"{100 * (stress_design_compliance / compliance_result.compliance - 1):.1f}% stiffness "
-        f"and buys a {100 * (1 - stress_result.max_stress / peak_compliance):.0f}% lower peak stress."
-    )
+    # -- 3. The verdict -------------------------------------------------------------
+    print("\nMaterial needed to meet the limit:")
+    if floor > limit:
+        print(f"  minimum compliance   —  unattainable at any volume (floor {floor:.3f} > {limit:.3f})")
+        print(f"  stress-constrained   {stress_result.volume_fraction:.4f}")
+        print(
+            f"\n  The requirement is below the compliance design's floor, so no amount of\n"
+            f"  material makes that layout safe. The stress-constrained design meets it\n"
+            f"  using {stress_result.volume_fraction:.0%} of the domain."
+        )
+        comparison = None
+    else:
+        # Bisect for the lightest compliance design that still meets the limit.
+        print("  searching for the lightest compliance-optimal design that meets it")
+        lo, hi = 0.05, max(floor_volumes)
+        best = hi
+        for _ in range(args.bisection_steps):
+            mid = 0.5 * (lo + hi)
+            _, peak = compliance_design(
+                model, bcs, rmin, passive_void, load_patch, mid, args.iterations
+            )
+            ok = peak <= limit
+            print(f"    volume {mid:.4f}: peak {peak:7.3f} {'meets' if ok else 'over'}")
+            if ok:
+                hi, best = mid, mid
+            else:
+                lo = mid
+        comparison = best
+        print(f"\n  minimum compliance   {best:.4f}")
+        print(f"  stress-constrained   {stress_result.volume_fraction:.4f}")
+        delta = 100.0 * (stress_result.volume_fraction - best) / best
+        verdict = "lighter" if delta < 0 else "heavier"
+        print(
+            f"\n  The limit sits above the compliance floor, so the corner is no longer\n"
+            f"  what binds. Here the stress-constrained design is {abs(delta):.0f}% {verdict}:\n"
+            f"  its aggregated constraint is an approximation and the problem is strongly\n"
+            f"  non-convex, so it wins only where the constraint does work compliance cannot."
+        )
 
     if args.figures.lower() == "none":
         return
@@ -214,15 +264,17 @@ def main() -> None:
     from fea.plotting import plot_density, save
 
     os.makedirs(args.figures, exist_ok=True)
-    fig, axes = plt.subplots(2, 2, figsize=(11, 10.5))
+    reference_result, reference_volume, reference_peak = floor_design
+    reference_stress = probe.analyse(reference_result.density)[4]
 
+    fig, axes = plt.subplots(2, 2, figsize=(11, 10.5))
     plot_density(
         grid,
-        compliance_result.density,
+        reference_result.density,
         ax=axes[0, 0],
         title=(
-            f"Minimum compliance, volume {volume:.2f}\n"
-            f"compliance {compliance_result.compliance:.1f}, peak stress {peak_compliance:.1f}"
+            f"Minimum compliance, volume {reference_volume:.2f}\n"
+            f"peak stress {reference_peak:.1f} — its floor, at any volume"
         ),
     )
     plot_density(
@@ -230,14 +282,14 @@ def main() -> None:
         stress_result.density,
         ax=axes[0, 1],
         title=(
-            f"Stress-constrained, volume {volume:.2f}, limit {limit:.1f}\n"
-            f"compliance {stress_design_compliance:.1f}, peak stress {stress_result.max_stress:.1f}"
+            f"Stress-constrained, limit {limit:.1f}\n"
+            f"volume {stress_result.volume_fraction:.2f}, peak stress {stress_result.max_stress:.1f}"
         ),
     )
 
-    vmax = peak_compliance
+    vmax = max(reference_peak, stress_result.max_stress)
     for ax, stress, label in (
-        (axes[1, 0], compliance_stress, "minimum compliance"),
+        (axes[1, 0], reference_stress, "minimum compliance"),
         (axes[1, 1], stress_result.stress, "stress-constrained"),
     ):
         image = stress.reshape(grid.element_grid_shape())
@@ -258,8 +310,8 @@ def main() -> None:
         colorbar.ax.axhline(limit, color="white", lw=1.2)
 
     fig.suptitle(
-        "Same bracket, same load, same material: stiffness-optimal keeps the sharp "
-        "corner, stress-constrained rounds it",
+        "Minimum compliance keeps the sharp corner at any volume; the stress "
+        "constraint rounds it",
         y=0.995,
     )
     save(fig, os.path.join(args.figures, "stress_lbracket.png"))

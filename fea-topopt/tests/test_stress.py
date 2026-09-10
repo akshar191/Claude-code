@@ -126,3 +126,61 @@ def test_non_homogeneous_supports_are_rejected():
     bcs.fix(0, 0.01)
     with pytest.raises(ValueError, match="Prescribed"):
         StressConstrainedOptimizer(model, bcs)
+
+
+def test_initial_design_seeds_the_optimiser():
+    """A supplied starting design is used, with the passive regions still imposed."""
+    model, bcs = cantilever(nx=16, ny=8)
+    grid = model.mesh
+    void = grid.element_centroids()[:, 1] > 0.85
+
+    rng = np.random.default_rng(7)
+    seed = rng.uniform(0.4, 1.0, grid.n_elements)
+    settings = StressSettings(stress_limit=5.0, filter_radius=1.5, max_iterations=1)
+    result = StressConstrainedOptimizer(model, bcs, settings, passive_void=void).run(
+        initial_design=seed
+    )
+
+    # One iteration reports the seed's own volume, not the default uniform start.
+    # The passive regions are imposed on the design before it is filtered, so the
+    # reference has to be built the same way.
+    optimiser = StressConstrainedOptimizer(model, bcs, settings, passive_void=void)
+    raw = seed.copy()
+    raw[void] = settings.x_min
+    expected = optimiser.physical_density(np.clip(raw, settings.x_min, 1.0))
+    assert result.volume_history[0] == pytest.approx(
+        float(np.mean(expected[optimiser.domain_mask])), rel=1e-9
+    )
+
+    default = StressConstrainedOptimizer(model, bcs, settings, passive_void=void).run()
+    assert result.volume_history[0] != pytest.approx(default.volume_history[0], rel=1e-3)
+    assert np.allclose(result.density[void], settings.x_min)
+
+
+def test_initial_design_of_the_wrong_length_is_rejected():
+    model, bcs = cantilever(nx=16, ny=8)
+    optimiser = StressConstrainedOptimizer(model, bcs, StressSettings(max_iterations=1))
+    with pytest.raises(ValueError, match="initial_design"):
+        optimiser.run(initial_design=np.ones(5))
+
+
+def test_continuation_prevents_runaway_from_a_slack_start():
+    """A limit above the initial peak must not let the design dissolve.
+
+    Without the continuation ramp the optimiser takes pure volume-descent steps
+    while the constraint is slack, and the stress - which grows like x^(q-p) as
+    material thins - overshoots by orders of magnitude before the constraint
+    ever pushes back.
+    """
+    model, bcs = cantilever(nx=24, ny=12)
+    probe = StressConstrainedOptimizer(model, bcs, StressSettings(stress_limit=1.0, filter_radius=1.5))
+    peak_full = probe.analyse(np.ones(model.mesh.n_elements))[4].max()
+
+    limit = 1.6 * peak_full  # comfortably slack at the start
+    settings = StressSettings(
+        stress_limit=limit, filter_radius=1.5, max_iterations=150, initial_density=1.0
+    )
+    result = StressConstrainedOptimizer(model, bcs, settings).run()
+
+    assert result.max_stress <= 1.05 * limit
+    assert result.volume_fraction > 0.05  # did not dissolve

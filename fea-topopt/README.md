@@ -177,6 +177,73 @@ structure is visibly the same at every resolution.
 
 ![Mesh independence](results/mesh_independence.png)
 
+## Stress-constrained design
+
+Minimum compliance says nothing about whether the part will break. Compliance is
+an integral over the whole structure, so a local hot spot barely moves it — which
+is why the compliance-optimal L-bracket keeps the sharp re-entrant corner where a
+real bracket cracks.
+
+The obvious way to show this off would be to compare peak stress at equal volume.
+That comparison is not meaningful, and this repository does not make it: the two
+formulations optimise different things, and a minimum-volume design deliberately
+sits right at its stress limit, so an equal-volume stress comparison flatters
+whichever design happens to be further from its own optimum. Measured that way
+the compliance design often looks *better*, which says nothing about either.
+
+The engineering question is how much material each formulation needs to meet a
+strength requirement. Since minimum compliance takes no stress input, answering
+it means searching over its volume — and that search is what makes the point:
+
+```
+Minimum compliance, peak relaxed von Mises stress against volume fraction
+  volume 0.40:  peak 61.40      volume 0.70:  peak 61.12
+  volume 0.50:  peak 61.40      volume 0.80:  peak 61.12
+  volume 0.60:  peak 61.15      volume 0.95:  peak 61.12
+```
+
+**The compliance design has a stress floor of 61.1 that more material cannot
+lower.** Past about 60% of the domain the optimiser converges to the same layout,
+corner and all, and the corner sets the peak. For any requirement below 61.1 —
+that is, any requirement the sharp corner itself violates — minimum compliance
+cannot produce a safe part at any weight.
+
+The stress-constrained formulation meets those requirements comfortably:
+
+| stress limit | minimum compliance | stress-constrained |
+| --- | --- | --- |
+| 52.8 (75% of solid) | unattainable at any volume | **0.53** |
+| 59.8 (85% of solid) | unattainable at any volume | **0.44** |
+| 70.4 (solid bracket) | 0.39 | 0.41 |
+| 80.9 (115% of solid) | 0.32 | 0.36 |
+
+![Stress-constrained L-bracket](results/stress_lbracket.png)
+
+The bottom two rows are the honest other half. Once the limit rises above the
+compliance floor the corner stops binding, and there minimum compliance is
+slightly *lighter* — the aggregated constraint is an approximation and the
+stress-constrained problem is strongly non-convex, so it wins where the
+constraint does work compliance cannot, not everywhere.
+
+Two implementation details turned out to matter more than expected, and both are
+recorded in the code:
+
+**The aggregation exponent is not a free parameter.** At `P = 8` the optimiser
+converges to a design 20% heavier than at `P = 12` for the same limit (0.53
+against 0.44 at a limit of 59.8), because a flatter aggregate keeps material
+where the true maximum does not need it. Above about 16 it stops converging
+within a few hundred iterations. The default is 12.
+
+**A slack constraint at the start is a trap.** If the limit is above the initial
+design's own peak stress, the optimiser takes pure volume-descent steps while
+nothing pushes back, and the stress — which grows like `x^(q−p)` as material
+thins — overshoots by orders of magnitude before the constraint engages. On this
+bracket it dissolved the structure to a volume fraction of 0.010 with a peak
+stress of 4.5 × 10⁸. Two guards fix it: continuation that ramps the working limit
+from the initial peak to the requested value over the first 30 iterations, so the
+constraint is active from the first step, and a trust-region check that rejects
+any step exceeding three times the working limit and halves the move limit.
+
 ## Interactive demo
 
 `web/load-paths.html` is a self-contained page that runs the same optimisation in

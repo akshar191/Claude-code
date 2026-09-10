@@ -78,6 +78,17 @@ class StressSettings:
         adaptive_scaling: Relaxation factor ``alpha`` of the p-norm correction;
             1 follows the previous iteration exactly, smaller values damp it.
         initial_density: Starting density everywhere in the design domain.
+        continuation_iterations: The working stress limit is ramped linearly
+            from the initial design's peak stress to ``stress_limit`` over this
+            many iterations, so the constraint is active from the first step.
+            Without it a feasible start lets the optimiser take pure volume
+            descent steps until the stress, which grows like ``x^(q-p)`` as
+            material is thinned, overshoots the limit by a wide margin. Zero
+            disables the ramp.
+        growth_guard: If the peak stress exceeds this multiple of the working
+            limit the step is rejected, the previous design restored, and the
+            move limit halved: a trust-region safeguard against the design
+            disconnecting, from which no gradient step recovers.
     """
 
     stress_limit: float = 1.0
@@ -92,6 +103,8 @@ class StressSettings:
     E_min: float = 1e-9
     adaptive_scaling: float = 0.5
     initial_density: float = 1.0
+    continuation_iterations: int = 30
+    growth_guard: float = 3.0
 
     def __post_init__(self) -> None:
         if self.stress_limit <= 0.0:
@@ -206,6 +219,7 @@ class StressConstrainedOptimizer:
         self.f = bcs.force_vector(self.grid.n_dofs)
 
         self.scaling = 1.0  # adaptive p-norm correction c
+        self.stress_limit = self.settings.stress_limit  # working limit, ramped by continuation
 
     # -- analysis ------------------------------------------------------------------
 
@@ -260,7 +274,7 @@ class StressConstrainedOptimizer:
         vm = np.maximum(vm, 1e-12 * max(1.0, vm.max()))
 
         relaxed = physical**s.relaxation * vm
-        normalised = np.where(self.design_mask, relaxed / s.stress_limit, 0.0)
+        normalised = np.where(self.design_mask, relaxed / self.stress_limit, 0.0)
 
         pnorm = float(np.sum(normalised**s.pnorm) ** (1.0 / s.pnorm))
         constraint = self.scaling * pnorm - 1.0
@@ -268,10 +282,10 @@ class StressConstrainedOptimizer:
         # d(sigma_PN)/d(normalised_e), then split into the explicit density
         # term and the implicit displacement term handled by the adjoint.
         dpn_dn = pnorm ** (1.0 - s.pnorm) * normalised ** (s.pnorm - 1.0)
-        explicit = dpn_dn * s.relaxation * physical ** (s.relaxation - 1.0) * vm / s.stress_limit
+        explicit = dpn_dn * s.relaxation * physical ** (s.relaxation - 1.0) * vm / self.stress_limit
 
         # Adjoint load: sum over elements of the stress sensitivity to u_e.
-        weight = dpn_dn * physical**s.relaxation / (s.stress_limit * vm)  # (n,)
+        weight = dpn_dn * physical**s.relaxation / (self.stress_limit * vm)  # (n,)
         dvm_dsigma = sigma @ VON_MISES_FORM_2D  # (n, 3) = V sigma (V symmetric)
         gamma = (weight[:, None] * dvm_dsigma) @ self.DB  # (n, 8)
         adjoint_rhs = np.zeros(self.grid.n_dofs)
@@ -319,10 +333,28 @@ class StressConstrainedOptimizer:
             grid_shape=self.grid.element_grid_shape(),
         )
 
+        self.stress_limit = s.stress_limit
+        initial_peak: float | None = None
+        previous_design = design.copy()
+        rejected = 0
+
         for iteration in range(1, s.max_iterations + 1):
             physical = self._physical(design)
             volume, dvolume, constraint, dconstraint, relaxed, pnorm = self.analyse(physical)
             max_stress = float(relaxed[self.design_mask].max())
+
+            if initial_peak is None:
+                initial_peak = max_stress
+
+            # Trust-region guard: a step that let the stress run away is undone
+            # and the move limit halved, rather than continuing from a design
+            # whose gradients no longer mean anything.
+            if max_stress > s.growth_guard * self.stress_limit and iteration > 1 and rejected < 8:
+                rejected += 1
+                design = previous_design.copy()
+                mma.move = max(0.01, 0.5 * mma.move)
+                mma.xold1 = mma.xold2 = None
+                continue
 
             new_design = mma.update(
                 design,
@@ -335,11 +367,18 @@ class StressConstrainedOptimizer:
             new_design[self.passive_solid] = 1.0
 
             change = float(np.max(np.abs(new_design - design)[self.free_design]))
+            previous_design = design
             design = new_design
 
-            # Adaptive correction so c * sigma_PN tracks the true maximum.
-            target = max_stress / (pnorm * s.stress_limit)
+            # Adaptive correction so c * sigma_PN tracks the true maximum. Since
+            # sigma_PN is normalised by the limit, c is the ratio of the peak to
+            # the raw p-norm and is independent of the working limit, so the
+            # continuation ramp below leaves it valid.
+            target = max_stress / (pnorm * self.stress_limit)
             self.scaling = s.adaptive_scaling * target + (1.0 - s.adaptive_scaling) * self.scaling
+            if s.continuation_iterations > 0:
+                ramp = min(1.0, iteration / s.continuation_iterations)
+                self.stress_limit = initial_peak + ramp * (s.stress_limit - initial_peak)
 
             result.volume_history.append(volume)
             result.stress_history.append(max_stress)
@@ -352,8 +391,9 @@ class StressConstrainedOptimizer:
             if callback is not None:
                 callback(iteration, volume, max_stress, constraint, physical)
 
+            at_target = self.stress_limit == s.stress_limit
             feasible = max_stress <= 1.02 * s.stress_limit
-            if change < s.tolerance and feasible and iteration > 10:
+            if change < s.tolerance and feasible and at_target and iteration > 10:
                 result.converged = True
                 break
 

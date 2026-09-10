@@ -197,16 +197,18 @@ it means searching over its volume — and that search is what makes the point:
 
 ```
 Minimum compliance, peak relaxed von Mises stress against volume fraction
-  volume 0.40:  peak 61.40      volume 0.70:  peak 61.12
-  volume 0.50:  peak 61.40      volume 0.80:  peak 61.12
-  volume 0.60:  peak 61.15      volume 0.95:  peak 61.12
+  volume 0.40:  peak 67.94      compliance 175.5
+  volume 0.50:  peak 61.38      compliance 144.7
+  volume 0.60:  peak 61.15      compliance 132.3
+  volume 0.80:  peak 61.12      compliance 131.4
 ```
 
 **The compliance design has a stress floor of 61.1 that more material cannot
-lower.** Past about 60% of the domain the optimiser converges to the same layout,
-corner and all, and the corner sets the peak. For any requirement below 61.1 —
-that is, any requirement the sharp corner itself violates — minimum compliance
-cannot produce a safe part at any weight.
+lower.** Below about half the domain its members thin out and the peak climbs
+again; above 60% the optimiser converges to the same layout however much material
+it is given, corner and all, and the corner sets the peak. For any requirement
+below 61.1 — that is, any requirement the sharp corner itself violates — minimum
+compliance cannot produce a safe part at any weight.
 
 The stress-constrained formulation meets those requirements comfortably:
 
@@ -214,16 +216,17 @@ The stress-constrained formulation meets those requirements comfortably:
 | --- | --- | --- |
 | 52.8 (75% of solid) | unattainable at any volume | **0.53** |
 | 59.8 (85% of solid) | unattainable at any volume | **0.44** |
-| 70.4 (solid bracket) | 0.39 | 0.41 |
-| 80.9 (115% of solid) | 0.32 | 0.36 |
 
 ![Stress-constrained L-bracket](results/stress_lbracket.png)
 
-The bottom two rows are the honest other half. Once the limit rises above the
-compliance floor the corner stops binding, and there minimum compliance is
-slightly *lighter* — the aggregated constraint is an approximation and the
-stress-constrained problem is strongly non-convex, so it wins where the
-constraint does work compliance cannot, not everywhere.
+The honest other half: this is the regime where the constraint does work
+compliance cannot. Once the limit rises above the compliance floor the corner
+stops binding, and the two formulations become comparable — at a limit of 70.4,
+the solid bracket's own peak, the stress-constrained design needs a volume
+fraction of 0.38 against roughly 0.39 for minimum compliance. The aggregated
+constraint is an approximation and the problem is strongly non-convex, so the
+stress formulation wins decisively only where a local hot spot is what actually
+governs.
 
 Two implementation details turned out to matter more than expected, and both are
 recorded in the code:
@@ -358,7 +361,7 @@ python examples/optimize.py --case mbb --nx 240 --ny 80 --rmin 4
 python examples/filter_study.py                # regularisation study
 python examples/optimize3d.py --case all       # 3D cantilever and bridge
 python examples/stress_lbracket.py             # stress-constrained L-bracket
-python -m pytest tests/ -q                     # 45 tests
+python -m pytest tests/ -q                     # 49 tests
 ```
 
 As a library:
@@ -420,7 +423,7 @@ examples/
   filter_study.py          checkerboarding and mesh independence
   optimize3d.py            3D cantilever and bridge with H8 elements
   stress_lbracket.py       stress-constrained versus compliance-optimal bracket
-tests/                     45 unit and verification tests
+tests/                     49 unit and verification tests
 web/
   load-paths.html          self-contained browser port of the 2D optimiser
 ```

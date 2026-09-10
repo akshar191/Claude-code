@@ -1,19 +1,27 @@
-"""Mesh dependence of the peak stress: compliance-optimal versus stress-constrained.
+"""Is a stress-constrained design a property of the part or of the mesh?
 
 At a re-entrant corner the elasticity solution is singular, so the peak stress a
-finite element model reports there is not a property of the part but of the
-mesh: refine the mesh and it grows without bound. A minimum compliance design
-keeps that corner, so its reported peak stress is a mesh artefact and any margin
-computed from it is fictitious.
+finite element model reports there grows without bound as the mesh is refined.
+That has a consequence for both formulations, and they are not the same
+consequence.
+
+A minimum compliance design keeps the corner, so the peak stress reported for it
+is largely a property of the discretisation: refine the mesh and the number
+climbs, and any safety margin computed from it moves with it.
 
 A stress-constrained design has to satisfy its limit on whichever mesh it is
-solved on, so its peak stress is a design property. With the filter radius held
-fixed in physical units, this script solves both problems on a sequence of
-meshes and reports how each design's peak stress moves.
+solved on, so its peak stress is pinned by construction. The question that
+matters for it is whether the *volume* it needs converges: if the same physical
+requirement demands steadily more material as the mesh is refined, the answer is
+a discretisation artefact too.
+
+This script holds the stress limit fixed in absolute terms and the filter radius
+fixed in physical units, then solves both problems on a sequence of meshes.
 
 Run from the project root::
 
     python examples/stress_mesh_study.py
+    python examples/stress_mesh_study.py --meshes 60 80 100 --volfrac 0.7
 """
 
 from __future__ import annotations
@@ -27,59 +35,64 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fea import TopologyOptimizer, TopOptSettings  # noqa: E402
 from fea.stress_topopt import StressConstrainedOptimizer, StressSettings  # noqa: E402
-from stress_lbracket import REFERENCE_N, REFERENCE_RMIN, l_bracket  # noqa: E402
+from stress_lbracket import (  # noqa: E402
+    REFERENCE_N,
+    REFERENCE_RMIN,
+    compliance_design,
+    l_bracket,
+    make_probe,
+)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--meshes", type=int, nargs="+", default=[60, 80, 100])
-    parser.add_argument("--limit-ratio", type=float, default=0.85)
-    parser.add_argument("--volfrac", type=float, default=0.45, help="compliance design volume")
-    parser.add_argument("--iterations", type=int, default=200)
+    parser.add_argument(
+        "--limit",
+        type=float,
+        default=52.0,
+        help="absolute stress limit, held fixed across every mesh",
+    )
+    parser.add_argument(
+        "--volfrac",
+        type=float,
+        default=0.7,
+        help="volume for the compliance design; above its floor so the corner dominates",
+    )
+    parser.add_argument("--iterations", type=int, default=300)
     args = parser.parse_args()
 
-    # The stress limit is fixed in absolute terms from the coarsest mesh, so that
-    # every run targets the same physical allowable.
-    limit = None
-    rows = []
+    print(
+        f"Stress limit {args.limit} on every mesh; compliance designs at volume "
+        f"fraction {args.volfrac}; filter radius fixed in physical units.\n"
+    )
+    header = (
+        f"{'mesh':>9} {'solid bracket':>14} {'compliance peak':>16} "
+        f"{'constrained volume':>19} {'its peak':>9}"
+    )
+    print(header)
+    print("-" * len(header))
 
+    rows = []
     for n in args.meshes:
         rmin = REFERENCE_RMIN * n / REFERENCE_N
         model, bcs, passive_void, load_patch = l_bracket(n)
-        probe = StressConstrainedOptimizer(
-            model,
-            bcs,
-            StressSettings(stress_limit=1.0, filter_radius=rmin),
-            passive_void=passive_void,
-            passive_solid=load_patch,
-            unconstrained=load_patch,
-        )
+        probe = make_probe(model, bcs, rmin, passive_void, load_patch)
+
         full = probe.physical_density(np.ones(model.mesh.n_elements))
         peak_full = float(probe.analyse(full)[4][probe.design_mask].max())
-        if limit is None:
-            limit = args.limit_ratio * peak_full
 
         start = time.perf_counter()
-        compliance = TopologyOptimizer(
-            model,
-            bcs,
-            TopOptSettings(
-                volume_fraction=args.volfrac,
-                filter_radius=rmin,
-                filter_type="density",
-                max_iterations=args.iterations,
-            ),
-            passive_void=passive_void,
-            passive_solid=load_patch,
-        ).run()
-        peak_compliance = float(probe.analyse(compliance.density)[4][probe.design_mask].max())
-
+        _, peak_compliance = compliance_design(
+            model, bcs, rmin, passive_void, load_patch, args.volfrac, args.iterations
+        )
         constrained = StressConstrainedOptimizer(
             model,
             bcs,
-            StressSettings(stress_limit=limit, filter_radius=rmin, max_iterations=args.iterations),
+            StressSettings(
+                stress_limit=args.limit, filter_radius=rmin, max_iterations=args.iterations
+            ),
             passive_void=passive_void,
             passive_solid=load_patch,
             unconstrained=load_patch,
@@ -88,30 +101,27 @@ def main() -> None:
 
         rows.append((n, peak_full, peak_compliance, constrained.volume_fraction, constrained.max_stress))
         print(
-            f"{n}x{n}: full bracket {peak_full:.1f}, compliance design {peak_compliance:.1f}, "
-            f"stress-constrained {constrained.max_stress:.1f} at volume "
-            f"{constrained.volume_fraction:.3f}  ({elapsed:.0f}s)",
+            f"{n:>4}x{n:<4} {peak_full:>14.2f} {peak_compliance:>16.2f} "
+            f"{constrained.volume_fraction:>19.4f} {constrained.max_stress:>9.2f}"
+            f"   ({elapsed:.0f}s)",
             flush=True,
         )
 
-    print(f"\nStress limit {limit:.2f}; compliance designs at volume fraction {args.volfrac}\n")
-    header = (
-        f"{'mesh':>9} {'full bracket':>13} {'compliance design':>18} "
-        f"{'stress-constrained':>19} {'its volume':>11}"
-    )
-    print(header)
-    print("-" * len(header))
-    for n, peak_full, peak_compliance, volume, peak_constrained in rows:
-        print(
-            f"{n:>4}x{n:<4} {peak_full:>13.1f} {peak_compliance:>18.1f} "
-            f"{peak_constrained:>19.1f} {volume:>11.3f}"
-        )
+    peaks_full = np.array([r[1] for r in rows])
+    peaks_compliance = np.array([r[2] for r in rows])
+    volumes = np.array([r[3] for r in rows])
 
-    first, last = rows[0], rows[-1]
+    print()
     print(
-        f"\nRefining from {first[0]}x{first[0]} to {last[0]}x{last[0]}: the compliance design's "
-        f"peak rises {100 * (last[2] / first[2] - 1):+.0f}%, the stress-constrained design's "
-        f"{100 * (last[4] / first[4] - 1):+.0f}%."
+        f"  Solid bracket peak stress rises {100 * (peaks_full[-1] / peaks_full[0] - 1):.0f}% "
+        f"across these meshes, and the compliance design's peak rises "
+        f"{100 * (peaks_compliance[-1] / peaks_compliance[0] - 1):.0f}%: both are "
+        "reading the\n  corner singularity, which the mesh resolves better each time."
+    )
+    spread = (volumes.max() - volumes.min()) / volumes.mean()
+    print(
+        f"  The stress-constrained volume varies by {100 * spread:.1f}% "
+        f"({volumes.min():.3f} to {volumes.max():.3f}) for the same physical requirement."
     )
 
 

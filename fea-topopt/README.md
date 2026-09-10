@@ -221,12 +221,12 @@ The stress-constrained formulation meets those requirements comfortably:
 
 The honest other half: this is the regime where the constraint does work
 compliance cannot. Once the limit rises above the compliance floor the corner
-stops binding, and the two formulations become comparable — at a limit of 70.4,
-the solid bracket's own peak, the stress-constrained design needs a volume
-fraction of 0.38 against roughly 0.39 for minimum compliance. The aggregated
-constraint is an approximation and the problem is strongly non-convex, so the
-stress formulation wins decisively only where a local hot spot is what actually
-governs.
+stops binding, and the advantage disappears — at a limit of 70.4, the solid
+bracket's own peak, the stress-constrained design needs a volume fraction of
+0.3786 against 0.3781 for minimum compliance, a difference of 0.1% that is well
+inside the noise of both searches. The aggregated constraint is an approximation
+and the problem is strongly non-convex, so the stress formulation earns its extra
+cost only where a local hot spot is what actually governs the part.
 
 ### What this formulation does not do
 

@@ -144,6 +144,52 @@ def plot_density(
     return ax
 
 
+def plot_voxels(
+    grid,
+    density: np.ndarray,
+    ax=None,
+    threshold: float = 0.5,
+    title: str | None = None,
+    elevation: float = 22.0,
+    azimuth: float = -60.0,
+):
+    """Render a three-dimensional layout as the set of elements above ``threshold``.
+
+    Faces are shaded by depth along the viewing direction so the structure reads
+    as a solid rather than a flat silhouette.
+    """
+    if ax is None:
+        fig = plt.figure(figsize=(9, 5.5))
+        ax = fig.add_subplot(111, projection="3d")
+
+    # The problem's y axis is "up" (as in the 2D cases); matplotlib draws its
+    # third axis vertically, so the volume is laid out as (x, z, y).
+    nz, ny, nx = grid.element_grid_shape()
+    volume = density.reshape(nz, ny, nx).transpose(2, 0, 1)  # (nx, nz, ny)
+    solid = volume >= threshold
+
+    # Shade by density so partially dense elements read lighter.
+    shade = np.clip((volume - threshold) / max(1e-9, 1.0 - threshold), 0.0, 1.0)
+    colors = np.zeros(volume.shape + (4,))
+    base = np.array([0.10, 0.12, 0.15])
+    light = np.array([0.55, 0.58, 0.62])
+    colors[..., :3] = light[None, None, None, :] * (1.0 - shade[..., None]) + base * shade[..., None]
+    colors[..., 3] = 1.0
+
+    ax.voxels(solid, facecolors=colors, edgecolor="#2a2f36", linewidth=0.15)
+    ax.set_box_aspect((grid.lx, grid.lz, grid.ly))
+    ax.view_init(elev=elevation, azim=azimuth)
+    ax.set_xlabel("x")
+    ax.set_ylabel("z")
+    ax.set_zlabel("y")
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_zticks([])
+    if title:
+        ax.set_title(title)
+    return ax
+
+
 def plot_convergence(result, ax=None, title: str | None = None):
     """Compliance and volume fraction against iteration number."""
     if ax is None:

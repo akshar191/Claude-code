@@ -18,13 +18,10 @@ import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 
-from .element import (
-    element_stiffness,
-    element_strains_at_gauss_points,
-    extrapolate_gauss_to_nodes,
-)
+from . import element as q4
+from . import element3d as h8
 from .material import Material, von_mises
-from .mesh import QuadMesh, StructuredGrid
+from .mesh import Mesh, StructuredGrid, StructuredGrid3D
 
 
 @dataclass
@@ -45,13 +42,21 @@ class BoundaryConditions:
             self.prescribed[int(dof)] = float(value)
         return self
 
-    def fix_nodes(self, nodes, direction: str = "xy") -> "BoundaryConditions":
-        """Clamp nodes in the x direction, the y direction, or both."""
+    def fix_nodes(
+        self, nodes, direction: str = "xy", dofs_per_node: int = 2
+    ) -> "BoundaryConditions":
+        """Clamp nodes along any combination of the axes named in ``direction``.
+
+        Args:
+            nodes: Node indices.
+            direction: Any subset of ``"xyz"``; ``"xy"`` clamps both in-plane
+                components, ``"xyz"`` fully clamps a three-dimensional node.
+            dofs_per_node: 2 for a plane model, 3 for a solid model.
+        """
+        components = [c for c, axis in enumerate("xyz"[:dofs_per_node]) if axis in direction]
         for node in np.atleast_1d(nodes).ravel():
-            if "x" in direction:
-                self.prescribed[2 * int(node)] = 0.0
-            if "y" in direction:
-                self.prescribed[2 * int(node) + 1] = 0.0
+            for c in components:
+                self.prescribed[dofs_per_node * int(node) + c] = 0.0
         return self
 
     def prescribe_values(self, dofs, values) -> "BoundaryConditions":
@@ -101,29 +106,60 @@ class Solution:
 
 
 class FEModel:
-    """Plane elasticity model over a quadrilateral mesh.
+    """Linear elasticity model over a quadrilateral (2D) or hexahedral (3D) mesh.
+
+    The dimension is taken from the mesh: a :class:`fea.mesh.QuadMesh` gives a
+    plane model with Q4 elements, a :class:`fea.mesh.HexMesh` a solid model with
+    H8 elements. Everything downstream - assembly, boundary conditions, stress
+    recovery, topology optimisation - works unchanged in either.
 
     Args:
         mesh: The discretised domain.
         material: Isotropic elastic material.
-        thickness: Out-of-plane thickness.
+        thickness: Out-of-plane thickness; used only by plane models.
     """
 
-    def __init__(
-        self, mesh: QuadMesh, material: Material, thickness: float = 1.0
-    ) -> None:
+    def __init__(self, mesh: Mesh, material: Material, thickness: float = 1.0) -> None:
         if thickness <= 0.0:
             raise ValueError(f"Thickness must be positive, got {thickness}")
+        if mesh.ndim not in (2, 3):
+            raise ValueError(f"Mesh must be two- or three-dimensional, got {mesh.ndim}")
         self.mesh = mesh
         self.material = material
         self.thickness = thickness
-        self.D = material.constitutive_matrix()
+        self.ndim = mesh.ndim
+        self.D = material.constitutive_matrix(self.ndim)
 
         self._element_dofs = mesh.all_element_dofs()
+        self.n_local = int(self._element_dofs.shape[1])
         # Sparse triplet pattern, built once and reused for every assembly.
-        self._rows = np.repeat(self._element_dofs, 8, axis=1).ravel()
-        self._cols = np.tile(self._element_dofs, (1, 8)).ravel()
+        self._rows = np.repeat(self._element_dofs, self.n_local, axis=1).ravel()
+        self._cols = np.tile(self._element_dofs, (1, self.n_local)).ravel()
         self._uniform_stiffness = self._uniform_element_stiffness()
+
+    # -- element-level dispatch -------------------------------------------------
+
+    def element_stiffness(self, coords: np.ndarray) -> np.ndarray:
+        """Stiffness matrix of one element with the given corner coordinates."""
+        if self.ndim == 2:
+            return q4.element_stiffness(coords, self.D, self.thickness)
+        return h8.element_stiffness(coords, self.D)
+
+    def _gauss_strains(self, coords: np.ndarray, u_element: np.ndarray) -> np.ndarray:
+        if self.ndim == 2:
+            return q4.element_strains_at_gauss_points(coords, u_element)
+        return h8.element_strains_at_gauss_points(coords, u_element)
+
+    def _extrapolate(self, gauss_values: np.ndarray) -> np.ndarray:
+        if self.ndim == 2:
+            return q4.extrapolate_gauss_to_nodes(gauss_values)
+        return h8.extrapolate_gauss_to_nodes(gauss_values)
+
+    @property
+    def n_stress_components(self) -> int:
+        return 3 if self.ndim == 2 else 6
+
+    # -- assembly ------------------------------------------------------------------
 
     def _uniform_element_stiffness(self) -> np.ndarray | None:
         """Element stiffness shared by all elements, when that sharing is valid.
@@ -133,17 +169,15 @@ class FEModel:
         moved, so congruence is verified rather than assumed: every element must
         match the first one up to a translation.
         """
-        if not isinstance(self.mesh, StructuredGrid):
+        if not isinstance(self.mesh, (StructuredGrid, StructuredGrid3D)):
             return None
 
-        coords = self.mesh.nodes[self.mesh.elements]  # (n_elements, 4, 2)
+        coords = self.mesh.nodes[self.mesh.elements]  # (n_elements, nodes, ndim)
         relative = coords - coords[:, :1, :]
         if not np.allclose(relative, relative[0], atol=1e-12):
             return None
 
-        return element_stiffness(
-            self.mesh.element_coords(0), self.D, self.thickness
-        )
+        return self.element_stiffness(self.mesh.element_coords(0))
 
     @property
     def has_uniform_elements(self) -> bool:
@@ -151,17 +185,11 @@ class FEModel:
         return self._uniform_stiffness is not None
 
     def element_stiffnesses(self) -> np.ndarray:
-        """(n_elements, 8, 8) array of unscaled element stiffness matrices."""
+        """(n_elements, n_local, n_local) array of unscaled element stiffness matrices."""
+        n = self.mesh.n_elements
         if self._uniform_stiffness is not None:
-            return np.broadcast_to(
-                self._uniform_stiffness, (self.mesh.n_elements, 8, 8)
-            )
-        return np.array(
-            [
-                element_stiffness(self.mesh.element_coords(e), self.D, self.thickness)
-                for e in range(self.mesh.n_elements)
-            ]
-        )
+            return np.broadcast_to(self._uniform_stiffness, (n, self.n_local, self.n_local))
+        return np.array([self.element_stiffness(self.mesh.element_coords(e)) for e in range(n)])
 
     def assemble(self, scale: np.ndarray | None = None) -> sp.csc_matrix:
         """Assemble the global stiffness matrix.
@@ -190,19 +218,41 @@ class FEModel:
         return K
 
     def solve(
-        self, bcs: BoundaryConditions, scale: np.ndarray | None = None
+        self,
+        bcs: BoundaryConditions,
+        scale: np.ndarray | None = None,
+        method: str = "auto",
+        initial_guess: np.ndarray | None = None,
+        rtol: float = 1e-8,
     ) -> Solution:
         """Solve the static problem for the given boundary conditions.
+
+        Args:
+            bcs: Prescribed displacements and applied forces.
+            scale: Optional per-element stiffness multiplier (see :meth:`assemble`).
+            method: ``"direct"`` for a sparse LU factorisation, ``"cg"`` for
+                Jacobi-preconditioned conjugate gradients, or ``"auto"`` to use
+                the direct solver in two dimensions and CG in three, where the
+                fill-in of a factorisation makes it several times slower.
+            initial_guess: Starting vector for CG; passing the previous
+                iteration's displacements in an optimisation loop shortens the
+                solve considerably.
+            rtol: Relative residual tolerance for CG.
 
         Raises:
             ValueError: If no degree of freedom is prescribed, which would leave
                 the stiffness matrix singular through rigid body motion.
+            RuntimeError: If CG fails to converge.
         """
         if not bcs.prescribed:
             raise ValueError(
                 "No prescribed degrees of freedom: the model is free to move as a "
                 "rigid body and the stiffness matrix is singular."
             )
+        if method == "auto":
+            method = "direct" if self.ndim == 2 else "cg"
+        if method not in ("direct", "cg"):
+            raise ValueError(f"method must be 'direct', 'cg' or 'auto', got {method!r}")
 
         n_dofs = self.mesh.n_dofs
         K = self.assemble(scale)
@@ -218,7 +268,23 @@ class FEModel:
 
         K_ff = K[free][:, free]
         rhs = f[free] - K[free][:, constrained] @ u[constrained]
-        u[free] = spla.spsolve(K_ff.tocsc(), rhs)
+
+        if method == "direct":
+            u[free] = spla.spsolve(K_ff.tocsc(), rhs)
+        else:
+            K_ff = K_ff.tocsr()
+            diagonal = K_ff.diagonal()
+            diagonal[diagonal <= 0.0] = 1.0
+            preconditioner = spla.LinearOperator(
+                K_ff.shape, matvec=lambda v: v / diagonal, dtype=float
+            )
+            x0 = None if initial_guess is None else initial_guess[free]
+            u_free, info = spla.cg(
+                K_ff, rhs, x0=x0, M=preconditioner, rtol=rtol, maxiter=50 * len(free)
+            )
+            if info != 0:
+                raise RuntimeError(f"Conjugate gradient solve did not converge (info={info})")
+            u[free] = u_free
 
         reactions = K @ u - f
         compliance = float(f @ u)
@@ -228,31 +294,49 @@ class FEModel:
         """Stresses at the Gauss points of every element.
 
         Returns:
-            (n_elements, 4, 3) array of [sigma_xx, sigma_yy, tau_xy].
+            (n_elements, n_gauss, n_components) array: 4 points and 3 components
+            in two dimensions, 8 points and 6 components in three.
         """
-        stresses = np.empty((self.mesh.n_elements, 4, 3))
+        n_gauss = 4 if self.ndim == 2 else 8
+        stresses = np.empty((self.mesh.n_elements, n_gauss, self.n_stress_components))
         for e in range(self.mesh.n_elements):
             coords = self.mesh.element_coords(e)
-            u_e = u[self.mesh.element_dofs(e)]
-            strains = element_strains_at_gauss_points(coords, u_e)
-            stresses[e] = strains @ self.D.T
+            u_e = u[self._element_dofs[e]]
+            stresses[e] = self._gauss_strains(coords, u_e) @ self.D.T
         return stresses
 
+    def centroid_strain_matrix(self) -> np.ndarray:
+        """Strain-displacement matrix at the element centre, for a uniform grid.
+
+        Returns:
+            Array of shape (n_components, n_local) mapping element displacements
+            to strains at the centroid. Only valid when every element is
+            congruent, which is checked.
+        """
+        if not self.has_uniform_elements:
+            raise ValueError("Centroid strain matrix requires a uniform grid")
+        coords = self.mesh.element_coords(0)
+        if self.ndim == 2:
+            B, _ = q4.strain_displacement_matrix(coords, 0.0, 0.0)
+        else:
+            B, _ = h8.strain_displacement_matrix(coords, 0.0, 0.0, 0.0)
+        return B
+
     def nodal_stresses(self, u: np.ndarray) -> np.ndarray:
-        """Continuous nodal stresses by extrapolation and area-weighted averaging.
+        """Continuous nodal stresses by extrapolation and averaging.
 
         Gauss-point stresses are extrapolated to the element corners and then
         averaged over the elements sharing each node, which recovers a smooth
         field from the discontinuous element-wise solution.
 
         Returns:
-            (n_nodes, 3) array of averaged nodal stresses.
+            (n_nodes, n_components) array of averaged nodal stresses.
         """
         gauss_stresses = self.element_stresses(u)
-        totals = np.zeros((self.mesh.n_nodes, 3))
+        totals = np.zeros((self.mesh.n_nodes, self.n_stress_components))
         counts = np.zeros(self.mesh.n_nodes)
         for e in range(self.mesh.n_elements):
-            corner_stresses = extrapolate_gauss_to_nodes(gauss_stresses[e])
+            corner_stresses = self._extrapolate(gauss_stresses[e])
             nodes = self.mesh.elements[e]
             np.add.at(totals, nodes, corner_stresses)
             np.add.at(counts, nodes, 1.0)
@@ -264,7 +348,7 @@ class FEModel:
 
 
 def edge_traction_forces(
-    mesh: QuadMesh, node_pairs, traction, thickness: float = 1.0
+    mesh: Mesh, node_pairs, traction, thickness: float = 1.0
 ) -> dict[int, float]:
     """Convert a distributed edge traction into consistent nodal forces.
 

@@ -169,3 +169,23 @@ def test_non_structured_mesh_is_rejected():
     model = FEModel(mesh, Material())
     with pytest.raises(TypeError, match="StructuredGrid"):
         TopologyOptimizer(model, BoundaryConditions())
+
+
+def test_optimiser_runs_on_a_three_dimensional_grid():
+    """The same loop works on H8 meshes: volume held, compliance reduced, 3D image."""
+    from fea.mesh import structured_grid_3d
+
+    grid = structured_grid_3d(12, 6, 4, lx=2.0, ly=1.0, lz=0.6)
+    model = FEModel(grid, Material(E=1.0, nu=0.3))
+    bcs = BoundaryConditions()
+    bcs.fix_nodes(grid.nodes_where(lambda x, y, z: np.isclose(x, 0.0)), "xyz", dofs_per_node=3)
+    tip = grid.nodes_where(lambda x, y, z: np.isclose(x, grid.lx) & np.isclose(y, 0.0))
+    for node in tip:
+        bcs.add_force(3 * node + 1, -1.0 / len(tip))
+
+    settings = TopOptSettings(volume_fraction=0.3, filter_radius=1.5, max_iterations=12)
+    result = TopologyOptimizer(model, bcs, settings).run()
+
+    assert result.as_image().shape == (4, 6, 12)
+    assert np.mean(result.density) == pytest.approx(0.3, abs=1e-3)
+    assert result.compliance < result.history[0]

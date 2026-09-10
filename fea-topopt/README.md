@@ -1,27 +1,37 @@
 # Finite Element Solver and Topology Optimiser
 
-A two-dimensional linear elasticity finite element solver written from scratch in
-Python, verified against a closed-form elasticity solution, and extended into a
-SIMP topology optimiser that uses the same solver as its engine.
+A linear elasticity finite element solver written from scratch in Python, in two
+and three dimensions, verified against closed-form elasticity solutions, and
+extended into topology optimisers that use the same solver as their engine:
+minimum compliance by SIMP, and minimum volume under a von Mises stress limit.
 
 Nothing here wraps a commercial package. The element stiffness matrices, the
-sparse assembly, the constraint handling, the stress recovery, the compliance
-sensitivities and the optimality criteria update are all implemented directly.
+sparse assembly, the constraint handling, the stress recovery, the compliance and
+stress sensitivities, the optimality criteria update and the Method of Moving
+Asymptotes are all implemented directly.
 
 ![Optimised MBB beam](results/topopt_mbb.png)
 
 ## What it does
 
-**Solver.** Four-node isoparametric quadrilateral (Q4) elements under plane
-stress or plane strain, integrated with a 2×2 Gauss rule. Sparse assembly with a
-precomputed connectivity pattern, prescribed displacements handled by static
-partitioning rather than a penalty, consistent nodal loads from distributed edge
-tractions, and stress recovery by Gauss-point extrapolation with nodal averaging.
+**Solver.** Four-node quadrilateral (Q4) elements for plane stress or plane
+strain, and eight-node hexahedral (H8) elements for solids, integrated with 2×2
+and 2×2×2 Gauss rules. Sparse assembly with a precomputed connectivity pattern,
+prescribed displacements handled by static partitioning rather than a penalty,
+consistent nodal loads from distributed edge and face tractions, and stress
+recovery by Gauss-point extrapolation with nodal averaging. Direct factorisation
+in 2D; warm-started Jacobi-preconditioned conjugate gradients in 3D, where it is
+four times faster.
 
-**Optimiser.** Minimum compliance topology optimisation by the SIMP method, with
-analytical sensitivities, a choice of sensitivity or density filter, optimality
-criteria updates driven by a bisection search on the volume multiplier, and
-support for regions forced solid or void.
+**Compliance optimiser.** Minimum compliance by the SIMP method in 2D and 3D,
+with analytical sensitivities, a choice of sensitivity or density filter,
+optimality criteria updates driven by a bisection search on the volume
+multiplier, and support for regions forced solid or void.
+
+**Stress-constrained optimiser.** Minimum volume subject to a von Mises stress
+limit: qp-relaxation of the stress singularity, p-norm aggregation with adaptive
+scaling, adjoint sensitivities, and a from-scratch Method of Moving Asymptotes to
+drive a constraint the optimality criteria cannot handle.
 
 ## Verification
 
@@ -81,9 +91,54 @@ arch. Nobody told it about arches.
 
 ![L-bracket](results/topopt_lbracket.png)
 
-The L-bracket rounds off the re-entrant corner — where the elasticity solution is
-singular and where real brackets crack — and fans a set of struts out to the
-loaded tip.
+The L-bracket fans a set of struts out to the loaded tip, but keeps the sharp
+re-entrant corner — where the elasticity solution is singular and where real
+brackets crack. Minimum compliance has no reason to avoid it. The
+[stress-constrained optimiser](#stress-constrained-design) does.
+
+## Three dimensions
+
+The same solver and optimiser run unchanged on hexahedral meshes: the model reads
+its dimension from the mesh and dispatches to the H8 element, and the SIMP loop,
+filter and optimality criteria update are written against element indices rather
+than a grid shape.
+
+| | |
+| --- | --- |
+| ![3D cantilever](results/topopt3d_cantilever.png) | ![3D bridge](results/topopt3d_bridge.png) |
+
+Both run on a 32×16×8 grid (4,096 elements, 15,147 DOFs) at under a second per
+iteration. In three dimensions the fill-in of a sparse factorisation makes the
+direct solver several times slower than an iterative one, so the 3D path uses
+Jacobi-preconditioned conjugate gradients warm-started from the previous
+iteration's displacements: 0.59 s per solve against 2.29 s for the factorisation,
+with the compliance agreeing to thirteen digits.
+
+The H8 element is verified the same way as the Q4: against a closed-form
+elasticity solution rather than a beam approximation. The reference is
+Saint-Venant's pure bending of a prismatic bar, whose displacement field is
+quadratic and includes the anticlastic curvature of the cross-section — the
+Poisson-ratio coupling a 2D model cannot represent. With exact displacements on
+one end face and the exact moment traction integrated over the other:
+
+```
+      mesh    DOFs   ||u|| err
+  8x2x1       162     11.66%
+ 16x4x2       765      3.22%
+ 32x8x4      4455      0.83%
+ 64x16x8    29835      0.21%
+
+  Observed convergence rate: O(h^1.94)
+```
+
+The fully integrated trilinear hexahedron is known to produce spurious transverse
+normal stresses in bending; the test suite asserts that they decay under
+refinement (17.5% → 2.5% of the bending stress across the sequence) while the
+bending stress itself is recovered to 2%. Alongside that: a 3D patch test on a
+randomly distorted brick mesh reproduces constant strain to 10⁻¹⁰, a bar in
+uniaxial tension reproduces the exact strain and full Poisson contraction to
+10⁻¹², and the free element has rank exactly 18 — six rigid body modes, no
+spurious mechanisms.
 
 ## Why the filter matters
 
@@ -174,16 +229,69 @@ and the design advances by the optimality criteria update
 `x_new = x (−∂c/∂x / λ ∂v/∂x)^η`, clipped to a move limit, with `λ` found by
 bisection so the volume constraint stays active.
 
+### The stress-constrained problem
+
+The stress-constrained optimiser solves
+
+```
+minimise    V(x) = Σ x_e / n
+subject to  c · σ_PN(x) ≤ 1,   K(x) u = f,   x_min ≤ x_e ≤ 1
+```
+
+where `σ_PN` is a p-norm over the relaxed element stresses:
+
+```
+σ_PN = ( Σ_e ( x_e^q σ_vm,e / σ_lim )^P )^(1/P),     q = 0.5,  P = 8
+```
+
+Three difficulties make this much harder than compliance, and each is handled
+the way the literature does. The *singularity* problem — as an element's density
+vanishes its stress does not, so the feasible set has degenerate appendages the
+optimiser cannot reach — is opened up by the `x^q` relaxation (Bruggi 2008; Le et
+al. 2010). The *locality* problem — one constraint per element — is handled by
+the p-norm, which approaches the maximum as `P` grows while staying
+differentiable. And because a finite `P` overestimates the maximum, the
+correction `c` is updated each iteration so that `c σ_PN` tracks the true peak
+from the previous design.
+
+The stress `σ_vm,e` is evaluated at the element centroid from the solid
+material's constitutive matrix, so the constraint bounds the stress in whatever
+material is there rather than the homogenised stress of a grey element. Its
+gradient has an explicit part through `x^q` and an implicit part through the
+displacement field; the implicit part is obtained by the adjoint method — one
+extra linear solve per iteration, reusing the factorised stiffness matrix — and
+the whole gradient is verified against central finite differences to one part in
+10⁴ in the test suite.
+
+The objective gradient is a constant, and the constraint gradient changes sign
+across the domain (stiffening a highly stressed element lowers the peak;
+thickening an idle one raises the norm), so the optimality criteria update does
+not apply. The design is advanced by the Method of Moving Asymptotes (Svanberg
+1987): each function is replaced by a separable convex approximation
+
+```
+f(x) ≈ r + Σ_j [ p_j / (U_j − x_j) + q_j / (x_j − L_j) ]
+```
+
+whose asymptotes `L`, `U` move in on variables that oscillate and out on
+variables that advance steadily. The subproblem's dual is a concave function of
+the single constraint multiplier, so it is solved exactly by bisection with a
+closed-form primal recovery — no interior point machinery. The implementation
+reaches the analytical optimum of Svanberg's reciprocal test problem to twelve
+digits.
+
 ## Usage
 
 ```bash
 pip install -r requirements.txt
 
-python examples/validate_cantilever.py         # verification study
-python examples/optimize.py --case all         # all four benchmark layouts
+python examples/validate_cantilever.py         # 2D verification study
+python examples/optimize.py --case all         # four 2D benchmark layouts
 python examples/optimize.py --case mbb --nx 240 --ny 80 --rmin 4
 python examples/filter_study.py                # regularisation study
-python -m pytest tests/ -q                     # 22 tests
+python examples/optimize3d.py --case all       # 3D cantilever and bridge
+python examples/stress_lbracket.py             # stress-constrained L-bracket
+python -m pytest tests/ -q                     # 45 tests
 ```
 
 As a library:
@@ -207,24 +315,47 @@ result = TopologyOptimizer(
 print(result.compliance, result.as_image().shape)
 ```
 
+The same code in three dimensions, and the stress-constrained problem:
+
+```python
+from fea import structured_grid_3d, StressConstrainedOptimizer, StressSettings
+
+grid3 = structured_grid_3d(32, 16, 8, lx=2.0, ly=1.0, lz=0.5)
+model3 = FEModel(grid3, Material(E=1.0, nu=0.3))          # H8 elements, CG solver
+bcs3 = BoundaryConditions()
+bcs3.fix_nodes(grid3.nodes_where(lambda x, y, z: np.isclose(x, 0.0)), "xyz", dofs_per_node=3)
+bcs3.add_force(3 * grid3.node_id(32, 0, 4) + 1, -1.0)
+result3 = TopologyOptimizer(model3, bcs3, TopOptSettings(volume_fraction=0.3)).run()
+
+stress = StressConstrainedOptimizer(
+    model, bcs, StressSettings(stress_limit=50.0, filter_radius=2.5)
+).run()
+print(stress.volume_fraction, stress.max_stress)
+```
+
 ## Layout
 
 ```
 fea/
-  material.py    constitutive matrices, von Mises and principal stresses
-  element.py     Q4 shape functions, B matrix, stiffness, stress extrapolation
-  mesh.py        structured grids, connectivity, DOF mapping
-  solver.py      assembly, boundary conditions, solution, stress recovery
-  analytical.py  exact elasticity solutions used for verification
-  topopt.py      SIMP interpolation, filters, optimality criteria update
-  plotting.py    deformed shapes, stress contours, layouts, convergence
+  material.py       constitutive matrices (2D and 3D), von Mises, principal stresses
+  element.py        Q4 shape functions, B matrix, stiffness, stress extrapolation
+  element3d.py      H8 shape functions, B matrix, stiffness, face tractions
+  mesh.py           structured grids in 2D and 3D, connectivity, DOF mapping
+  solver.py         assembly, boundary conditions, direct and CG solves, stress recovery
+  analytical.py     exact elasticity solutions used for verification
+  topopt.py         SIMP interpolation, filters, optimality criteria update
+  mma.py            Method of Moving Asymptotes, single constraint, dual bisection
+  stress_topopt.py  qp-relaxation, p-norm aggregation, adjoint sensitivities
+  plotting.py       stress contours, layouts, voxels, convergence
 examples/
-  validate_cantilever.py   convergence study against the exact solution
+  validate_cantilever.py   2D convergence study against the exact solution
   optimize.py              MBB, cantilever, bridge, and L-bracket cases
   filter_study.py          checkerboarding and mesh independence
-tests/                     22 unit and verification tests
+  optimize3d.py            3D cantilever and bridge with H8 elements
+  stress_lbracket.py       stress-constrained versus compliance-optimal bracket
+tests/                     45 unit and verification tests
 web/
-  load-paths.html          self-contained browser port of the optimiser
+  load-paths.html          self-contained browser port of the 2D optimiser
 ```
 
 ## References
@@ -236,3 +367,11 @@ web/
   Multidisciplinary Optimization* 43 (2011), 1–16.
 - Sigmund & Petersson, "Numerical instabilities in topology optimization",
   *Structural Optimization* 16 (1998), 68–75.
+- Svanberg, "The method of moving asymptotes — a new method for structural
+  optimization", *International Journal for Numerical Methods in Engineering*
+  24 (1987), 359–373.
+- Le, Norato, Bruns, Ha & Tortorelli, "Stress-based topology optimization for
+  continua", *Structural and Multidisciplinary Optimization* 41 (2010), 605–620.
+- Bruggi, "On an alternative approach to stress constraints relaxation in
+  topology optimization", *Structural and Multidisciplinary Optimization* 36
+  (2008), 125–141.

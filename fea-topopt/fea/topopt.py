@@ -35,8 +35,10 @@ import numpy as np
 import scipy.sparse as sp
 from scipy.spatial import cKDTree
 
-from .mesh import StructuredGrid
+from .mesh import StructuredGrid, StructuredGrid3D
 from .solver import BoundaryConditions, FEModel
+
+StructuredDesignGrid = (StructuredGrid, StructuredGrid3D)
 
 
 @dataclass
@@ -108,7 +110,10 @@ class TopOptResult:
     grid_shape: tuple[int, int] = (0, 0)
 
     def as_image(self) -> np.ndarray:
-        """Density reshaped to ``(ny, nx)``, row 0 being the bottom of the domain."""
+        """Density reshaped to the grid: ``(ny, nx)`` in 2D, ``(nz, ny, nx)`` in 3D.
+
+        Row 0 of the last two axes is the bottom of the domain.
+        """
         return self.density.reshape(self.grid_shape)
 
     def discreteness(self) -> float:
@@ -131,17 +136,21 @@ class TopOptResult:
         fully developed checkerboard.
         """
         image = self.as_image()
-        if min(image.shape) < 2:
+        if min(image.shape[-2:]) < 2:
             return 0.0
-        stencil = image[:-1, :-1] - image[1:, :-1] - image[:-1, 1:] + image[1:, 1:]
+        # In three dimensions the stencil is applied on every x-y slice.
+        stencil = (
+            image[..., :-1, :-1] - image[..., 1:, :-1]
+            - image[..., :-1, 1:] + image[..., 1:, 1:]
+        )
         return float(np.mean(np.abs(stencil))) / 4.0
 
 
-def build_filter_matrix(grid: StructuredGrid, radius: float) -> sp.csr_matrix:
+def build_filter_matrix(grid, radius: float) -> sp.csr_matrix:
     """Cone-shaped neighbourhood weights ``H_ef = max(0, rmin - dist(e, f))``.
 
     Distance is measured in element widths, so ``radius`` is independent of the
-    physical size of the domain.
+    physical size of the domain. Works for two- and three-dimensional grids.
 
     Args:
         grid: The structured design grid.
@@ -150,7 +159,7 @@ def build_filter_matrix(grid: StructuredGrid, radius: float) -> sp.csr_matrix:
     Returns:
         Sparse ``(n_elements, n_elements)`` weight matrix.
     """
-    centroids = grid.element_centroids() / np.array([grid.dx, grid.dy])
+    centroids = grid.element_centroids() / grid.spacing
     tree = cKDTree(centroids)
     pairs = tree.query_pairs(radius, output_type="ndarray")
 
@@ -185,10 +194,10 @@ class TopologyOptimizer:
         passive_solid: np.ndarray | None = None,
         passive_void: np.ndarray | None = None,
     ) -> None:
-        if not isinstance(model.mesh, StructuredGrid):
+        if not isinstance(model.mesh, StructuredDesignGrid):
             raise TypeError(
-                "Topology optimisation requires a StructuredGrid design domain, got "
-                f"{type(model.mesh).__name__}"
+                "Topology optimisation requires a StructuredGrid or StructuredGrid3D "
+                f"design domain, got {type(model.mesh).__name__}"
             )
         if not model.has_uniform_elements:
             raise ValueError(
@@ -197,7 +206,7 @@ class TopologyOptimizer:
                 "have been moved."
             )
         self.model = model
-        self.grid: StructuredGrid = model.mesh
+        self.grid = model.mesh
         self.bcs = bcs
         self.settings = settings or TopOptSettings()
 
@@ -221,6 +230,9 @@ class TopologyOptimizer:
             self.H = None
             self.Hs = None
 
+        # Previous displacement field, used to warm start an iterative solve.
+        self._last_u: np.ndarray | None = None
+
     def _stiffness_scale(self, density: np.ndarray, penalty: float) -> np.ndarray:
         """SIMP stiffness multiplier relative to the solid modulus."""
         e_min = self.settings.E_min
@@ -235,10 +247,15 @@ class TopologyOptimizer:
             ``(compliance, dc_dx, strain_energy)`` where ``strain_energy`` is the
             unscaled element quantity ``u_e^T k_e u_e``.
         """
-        solution = self.model.solve(self.bcs, scale=self._stiffness_scale(density, penalty))
+        solution = self.model.solve(
+            self.bcs,
+            scale=self._stiffness_scale(density, penalty),
+            initial_guess=self._last_u,
+        )
         u = solution.displacements
+        self._last_u = u
 
-        u_elements = u[self.element_dofs]  # (n_elements, 8)
+        u_elements = u[self.element_dofs]  # (n_elements, n_local)
         strain_energy = np.einsum("ij,jk,ik->i", u_elements, self.ke, u_elements)
 
         scale = self._stiffness_scale(density, penalty)
